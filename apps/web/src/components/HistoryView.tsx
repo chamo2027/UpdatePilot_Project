@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { api } from '../lib/api';
 import {
   Download,
   History,
@@ -13,61 +14,39 @@ import {
 
 interface HistoryViewProps {
   history: any[];
-  applications: any[];
 }
 
-export const HistoryView: React.FC<HistoryViewProps> = ({
-  history,
-  applications,
-}) => {
-  // Export applications inventory to CSV
-  const exportCsv = () => {
-    if (!applications || applications.length === 0) return;
+export const HistoryView: React.FC<HistoryViewProps> = ({ history }) => {
+  const [exportError, setExportError] = React.useState('');
+  const [exporting, setExporting] = React.useState(false);
 
-    const headers = [
-      'Application Name',
-      'Package Identifier',
-      'Installed Version',
-      'Available Version',
-      'Status',
-      'Source',
-      'Publisher',
-    ];
-
-    const rows = applications.map((app) => [
-      `"${(app.displayName || '').replace(/"/g, '""')}"`,
-      `"${(app.packageId || '').replace(/"/g, '""')}"`,
-      `"${app.installedVersion || ''}"`,
-      `"${app.availableVersion || ''}"`,
-      `"${app.updateStatus || ''}"`,
-      `"${app.source || ''}"`,
-      `"${(app.publisher || '').replace(/"/g, '""')}"`,
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `UpdatePilot_Inventory_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const exportReport = async (kind: 'inventory' | 'updates', format: 'csv' | 'json') => {
+    setExporting(true);
+    setExportError('');
+    try {
+      const records = await api.getReport(kind);
+      const columns = kind === 'inventory'
+        ? ['displayName', 'packageId', 'installedVersion', 'availableVersion', 'updateStatus', 'source', 'publisher']
+        : ['applicationName', 'packageId', 'fromVersion', 'targetVersion', 'verifiedVersion', 'state', 'exitCode', 'verificationResult', 'createdAt', 'completedAt'];
+      const cell = (value: unknown) => {
+        const text = String(value ?? '');
+        const safe = /^\s*[=+@-]|^[\t\r\n]/.test(text) ? "'" + text : text;
+        return '"' + safe.replace(/"/g, '""') + '"';
+      };
+      const contents = format === 'json' ? JSON.stringify(records, null, 2)
+        : [columns.join(','), ...records.map(row => columns.map(column => cell(row[column])).join(','))].join('\r\n');
+      const url = URL.createObjectURL(new Blob([contents], { type: format === 'json' ? 'application/json' : 'text/csv' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'UpdatePilot-' + kind + '.' + format;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Could not export report.');
+    } finally {
+      setExporting(false);
+    }
   };
-
-  // Export applications inventory to JSON
-  const exportJson = () => {
-    const jsonStr = JSON.stringify(applications, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `UpdatePilot_Inventory_${new Date().toISOString().slice(0, 10)}.json`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -80,22 +59,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
 
         {/* Export Buttons */}
-        <div className="flex items-center gap-2">
+        {exportError && <p role="alert">{exportError}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          <button disabled={exporting} onClick={() => void exportReport('updates', 'csv')}
+            className="rounded-lg bg-surface-muted px-3 py-2 text-xs font-semibold">
+            Update report CSV
+          </button>
           <button
             id="btn-export-csv"
-            onClick={exportCsv}
+            disabled={exporting}
+            onClick={() => void exportReport('inventory', 'csv')}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-foreground transition-colors"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Export CSV</span>
+            <span>Inventory CSV</span>
           </button>
           <button
             id="btn-export-json"
-            onClick={exportJson}
+            disabled={exporting}
+            onClick={() => void exportReport('inventory', 'json')}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-foreground transition-colors"
           >
             <FileCode className="w-3.5 h-3.5 text-brand-500" />
-            <span>Export JSON</span>
+            <span>Inventory JSON</span>
           </button>
         </div>
       </div>

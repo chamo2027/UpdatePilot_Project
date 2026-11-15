@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: updatepilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-updatepilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-updatepilot_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-updatepilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-updatepilot} -d ${POSTGRES_DB:-updatepilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: updatepilot-server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-updatepilot}:${POSTGRES_PASSWORD:-updatepilot_secret}@postgres:5432/${POSTGRES_DB:-updatepilot}?schema=public
+      DASHBOARD_ORIGIN: http://localhost:3000
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-change_me_in_production_1234}
+      SESSION_SECRET: ${SESSION_SECRET:-change_me_to_a_32_byte_random_string_now}
+      AGENT_PAIRING_CODE: ${AGENT_PAIRING_CODE:-change_me_to_a_32_byte_pairing_code}
+      ENABLE_OSV_ADVISORIES: "true"
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+    driver: local
+

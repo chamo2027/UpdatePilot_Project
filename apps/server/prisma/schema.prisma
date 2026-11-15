@@ -87,6 +87,7 @@ model ScanJob {
   updatesFound  Int       @default(0)
   startMessage  String?
   errorMessage  String?
+  inventorySnapshot String?
   startedAt     DateTime?
   completedAt   DateTime?
   createdAt     DateTime  @default(now())
@@ -110,6 +111,7 @@ model UpdateJob {
   exitCode           Int?
   outputLogs         String?
   verificationResult String?
+  verifiedVersion    String?
   startedAt          DateTime?
   completedAt        DateTime?
   createdAt          DateTime     @default(now())

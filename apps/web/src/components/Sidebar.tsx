@@ -53,9 +53,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 border-r border-surface-border bg-surface flex flex-col justify-between p-4 shrink-0 h-[calc(100vh-4rem)]">
-      <nav className="space-y-1.5">
-        <div className="px-3 py-2 text-[11px] font-semibold tracking-wider uppercase text-neutral-400">
+    <aside className="shrink-0 border-b border-surface-border bg-surface p-2 md:min-h-[calc(100vh-4rem)] md:w-64 md:border-b-0 md:border-r md:p-4">
+      <nav aria-label="Dashboard sections" className="flex gap-1 overflow-x-auto md:block md:space-y-1.5">
+        <div className="hidden px-3 py-2 text-[11px] font-semibold tracking-wider uppercase text-neutral-400 md:block">
           Navigation
         </div>
         {navItems.map((item) => {
@@ -66,7 +66,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={item.id}
               id={`nav-${item.id}`}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm font-medium transition-colors md:w-full ${
                 isActive
                   ? 'bg-brand-500/10 text-brand-500 font-semibold border border-brand-500/20'
                   : 'text-neutral-400 hover:text-foreground hover:bg-surface-muted'
@@ -91,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Safety Policy Callout in Sidebar */}
-      <div className="p-3 rounded-lg bg-surface-muted border border-surface-border text-xs text-neutral-400">
+      <div className="mt-4 hidden rounded-lg border border-surface-border bg-surface-muted p-3 text-xs text-neutral-400 md:block">
         <p className="font-semibold text-foreground mb-1">Local-First Safety</p>
         <p className="text-[11px] leading-relaxed">
           Updates require explicit user approval. All operations execute strictly via allowlisted Windows Package Manager calls.

@@ -1,8 +1,14 @@
 node_modules/
 .next/
+.next-*/
 dist/
 *.log
 .agent_state.json
 dev.db
 dev.db-journal
+apps/server/prisma/*.db
+apps/server/prisma/*.db-*
 .env.local
+.env
+*.tsbuildinfo
+apps/server/prisma/.test-*/

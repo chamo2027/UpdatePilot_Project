@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from '../components/Header';
 import { Sidebar, NavTab } from '../components/Sidebar';
 import { OverviewView } from '../components/OverviewView';
-import { ApplicationsView } from '../components/ApplicationsView';
+import { ApplicationsView, InventorySort } from '../components/ApplicationsView';
 import { UpdatesView } from '../components/UpdatesView';
 import { SecurityView } from '../components/SecurityView';
 import { HistoryView } from '../components/HistoryView';
@@ -14,6 +14,65 @@ import { AppDetailModal } from '../components/AppDetailModal';
 import { api } from '../lib/api';
 
 export default function Home() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/v1/session').then(response => setSignedIn(response.ok)).catch(() => setSignedIn(false));
+    const expire = () => setSignedIn(false);
+    window.addEventListener('updatepilot:session-expired', expire);
+    return () => window.removeEventListener('updatepilot:session-expired', expire);
+  }, []);
+
+  if (signedIn === null) return <p className="p-8">Checking your session…</p>;
+  if (signedIn) return <Dashboard onSignOut={async () => {
+    const response = await fetch('/api/v1/session', { method: 'DELETE' }).catch(() => null);
+    if (response?.ok || response?.status === 401) setSignedIn(false);
+    else window.alert('Could not sign out. Try again.');
+  }} />;
+
+  return (
+    <main className="grid min-h-screen place-items-center p-6">
+      <form className="w-full max-w-sm space-y-4 rounded-xl border border-surface-border bg-surface p-6"
+        onSubmit={async event => {
+          event.preventDefault();
+          setSubmitting(true);
+          setError('');
+          try {
+            const response = await fetch('/api/v1/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password }),
+            });
+            if (!response.ok) {
+              const result = await response.json().catch(() => ({}));
+              throw new Error(result.error || 'Could not sign in. Check that the server is running.');
+            }
+            setPassword('');
+            setSignedIn(true);
+          } catch (failure) {
+            setError(failure instanceof Error ? failure.message : 'Could not connect to the server.');
+          } finally {
+            setSubmitting(false);
+          }
+        }}>
+        <h1 className="text-2xl font-bold">Sign in to UpdatePilot</h1>
+        <label className="block" htmlFor="dashboard-password">Dashboard password</label>
+        <input id="dashboard-password" className="w-full rounded border border-surface-border bg-surface-muted p-2"
+          type="password" autoComplete="current-password" value={password} required
+          onChange={event => setPassword(event.target.value)} />
+        {error && <p role="alert">{error}</p>}
+        <button type="submit" disabled={submitting} className="w-full rounded bg-brand-600 p-2 text-white">
+          {submitting ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function Dashboard({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [currentTab, setCurrentTab] = useState<NavTab>('overview');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -27,10 +86,15 @@ export default function Home() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [sort, setSort] = useState<InventorySort>('name');
 
   const [updates, setUpdates] = useState<any[]>([]);
   const [findings, setFindings] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [connectionError, setConnectionError] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [notifications, setNotifications] = useState(false);
+  const seenUpdates = useRef<Set<string> | null>(null);
 
   // Modals & Operations
   const [isScanning, setIsScanning] = useState(false);
@@ -38,10 +102,21 @@ export default function Home() {
   const [selectedAppForDetail, setSelectedAppForDetail] = useState<any | null>(null);
   const [selectedAppForUpdate, setSelectedAppForUpdate] = useState<any | null>(null);
 
+  useEffect(() => {
+    setNotifications(localStorage.getItem('updatepilot-notifications') === 'on');
+    const saved = localStorage.getItem('updatepilot-theme');
+    if (saved === 'light' || saved === 'dark') {
+      setTheme(saved);
+      document.documentElement.classList.toggle('dark', saved === 'dark');
+      document.documentElement.classList.toggle('light', saved === 'light');
+    }
+  }, []);
+
   // Toggle Dark/Light Theme
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
+    localStorage.setItem('updatepilot-theme', nextTheme);
     if (nextTheme === 'dark') {
       document.documentElement.classList.add('dark');
       document.documentElement.classList.remove('light');
@@ -58,13 +133,14 @@ export default function Home() {
         await Promise.all([
           api.getDashboard().catch(() => null),
           api.getDevices().catch(() => []),
-          api.getUpdates().catch(() => []),
+          api.getUpdates().catch(() => null),
           api.getSecurityFindings().catch(() => []),
           api.getHistory().catch(() => []),
         ]);
 
-      if (metricsData) setMetrics(metricsData);
-      if (devicesData && devicesData.length > 0) setDevice(devicesData[0]);
+      setConnectionError(!metricsData);
+      if (metricsData) setMetrics({ ...metricsData, securityAdvisoriesCount: findingsData.length });
+      setDevice(devicesData[0] || null);
       if (updatesData) setUpdates(updatesData);
       if (findingsData) setFindings(findingsData);
       if (historyData) setHistory(historyData);
@@ -73,6 +149,22 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!metrics || connectionError) return;
+    const keys = new Set(updates.map(app => app.id + ':' + app.availableVersion));
+    const previous = seenUpdates.current;
+    seenUpdates.current = keys;
+    if (!previous || !notifications || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const count = Array.from(keys).filter(key => !previous.has(key)).length;
+    if (count) {
+      try {
+        new Notification('UpdatePilot', { body: count + (count === 1 ? ' new update is available.' : ' new updates are available.') });
+      } catch {
+        // Some browsers only support notifications through a service worker.
+      }
+    }
+  }, [updates, metrics, connectionError, notifications]);
+
   // Fetch Applications (with filters/pagination)
   const refreshApplications = useCallback(async () => {
     try {
@@ -80,6 +172,9 @@ export default function Home() {
         search,
         status: statusFilter,
         source: sourceFilter,
+        sortBy: sort === 'publisher' ? 'publisher' : sort === 'status' ? 'updateStatus' :
+          sort === 'recent' ? 'lastScannedAt' : 'displayName',
+        sortOrder: sort === 'name_desc' || sort === 'recent' ? 'desc' : 'asc',
         page,
         pageSize: 15,
       });
@@ -89,7 +184,7 @@ export default function Home() {
     } catch (e) {
       console.error('Error refreshing applications:', e);
     }
-  }, [search, statusFilter, sourceFilter, page]);
+  }, [search, statusFilter, sourceFilter, sort, page]);
 
   // Initial mount
   useEffect(() => {
@@ -116,6 +211,7 @@ export default function Home() {
       try {
         const scan = await api.getScanJob(activeScanId);
         if (scan.state === 'completed' || scan.state === 'failed') {
+          if (scan.state === 'failed') setScanError(scan.errorMessage || 'The scan failed. Check the Windows agent.');
           setIsScanning(false);
           setActiveScanId(null);
           refreshCore();
@@ -134,6 +230,7 @@ export default function Home() {
   const handleTriggerScan = async () => {
     if (!device?.id || isScanning) return;
     try {
+      setScanError('');
       setIsScanning(true);
       const job = await api.triggerScan(device.id);
       setActiveScanId(job.id);
@@ -154,7 +251,7 @@ export default function Home() {
         onToggleTheme={toggleTheme}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex flex-1 flex-col md:flex-row">
         {/* Navigation Sidebar */}
         <Sidebar
           currentTab={currentTab}
@@ -164,8 +261,12 @@ export default function Home() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-background">
+        <main className="min-w-0 flex-1 bg-background p-4 md:p-8">
           <div className="max-w-7xl mx-auto">
+            {connectionError && <p role="alert" className="mb-4 rounded border border-surface-border p-3">
+              The server is unavailable. Displayed results may be out of date.
+            </p>}
+            {scanError && <p role="alert" className="mb-4 rounded border border-surface-border p-3">{scanError}</p>}
             {currentTab === 'overview' && (
               <OverviewView
                 metrics={metrics}
@@ -195,6 +296,8 @@ export default function Home() {
                   setPage(1);
                 }}
                 sourceFilter={sourceFilter}
+                sort={sort}
+                onSortChange={value => { setSort(value); setPage(1); }}
                 onSourceFilterChange={(s) => {
                   setSourceFilter(s);
                   setPage(1);
@@ -223,16 +326,38 @@ export default function Home() {
             )}
 
             {currentTab === 'history' && (
-              <HistoryView history={history} applications={applications} />
+              <HistoryView history={history} />
             )}
 
             {currentTab === 'settings' && (
-              <SettingsView
-                device={device}
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                onRefresh={refreshCore}
-              />
+              <>
+                <SettingsView
+                  device={device}
+                  theme={theme}
+                  onToggleTheme={toggleTheme}
+                  onRefresh={refreshCore}
+                />
+                <button onClick={() => void onSignOut()} className="mt-4 rounded border border-surface-border px-4 py-2">
+                  Sign out
+                </button>
+                <button type="button" aria-pressed={notifications}
+                  className="ml-2 mt-4 rounded border border-surface-border px-4 py-2"
+                  onClick={async () => {
+                    if (notifications) {
+                      setNotifications(false);
+                      localStorage.setItem('updatepilot-notifications', 'off');
+                      return;
+                    }
+                    if (typeof Notification === 'undefined' || await Notification.requestPermission() !== 'granted') {
+                      window.alert('Allow notifications in your browser to enable this setting.');
+                      return;
+                    }
+                    setNotifications(true);
+                    localStorage.setItem('updatepilot-notifications', 'on');
+                  }}>
+                  {notifications ? 'Turn off update notifications' : 'Enable update notifications'}
+                </button>
+              </>
             )}
           </div>
         </main>

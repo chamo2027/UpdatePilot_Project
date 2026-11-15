@@ -1,81 +1,92 @@
-# UpdatePilot — Software Update Intelligence & Management Platform
+# UpdatePilot
 
-UpdatePilot is a Windows-first software update intelligence platform combining a modern web dashboard with a locally installed Windows Agent to discover installed applications, compare versions against trusted update sources (WinGet), present verified release details, and execute supported updates safely under explicit user authorization.
+UpdatePilot is a local Windows software inventory and update dashboard. The Windows agent uses WinGet to discover installed applications and report supported updates. The dashboard lets the operator review a target, approve it, and inspect the resulting version and job history.
 
----
-
-## Architecture Overview
-
-```
-                                +---------------------------+
-                                |  Next.js Web Dashboard    |
-                                |  (App Router, Tailwind)   |
-                                +-------------+-------------+
-                                              |
-                                     HTTP REST / API
-                                              |
-                                              v
-+--------------------------+    +-------------+-------------+
-|    Windows Host Agent    |<-->| Express API Backend Engine|
-| (WinGet Discovery/Upgrade|    |  (Prisma ORM + SQLite/PG) |
-+--------------------------+    +---------------------------+
+```text
+Browser → Next.js dashboard → Express API → Prisma / SQLite
+                                  ↕
+                           Windows agent → WinGet
 ```
 
-### Components
-1. **`apps/web`**: Next.js 14 Web Dashboard with Tailwind CSS, Lucide Icons, and Recharts. Features dark/light themes, live agent status telemetry, searchable application inventory, safe update review modals with real-time log viewers, and security vulnerability findings.
-2. **`apps/server`**: Express.js REST API with Prisma ORM (SQLite for zero-config local operation, fully compatible with PostgreSQL). Handles job orchestration, inventory persistence, safe update validations, and audit trails.
-3. **`apps/agent`**: Windows Desktop Agent integrating directly with `winget` (Windows Package Manager). Safely queries installed applications, compares versions, executes allowlisted updates, and verifies outcomes post-installation.
-4. **`packages/shared`**: Shared TypeScript contracts, Zod schemas, and data models shared across all apps.
+The web app is in `apps/web`, the API in `apps/server`, the Windows agent in `apps/agent`, and shared TypeScript contracts in `packages/shared`.
 
----
+## Local setup
 
-## Quickstart & Running Locally
+Use Windows 10 or 11 with WinGet available in a normal PowerShell window, and Node.js 22. Open PowerShell in the project root.
 
-### Prerequisites
-- Windows 10/11
-- Node.js v18+ (tested on v22)
-- `winget` (Windows Package Manager installed by default on Windows 10/11)
-
-### 1. Installation
-```bash
-npm install
-npm --workspace=@updatepilot/shared run build
-npm --workspace=@updatepilot/server run db:push
+```powershell
+npm.cmd ci
+npm.cmd --workspace=@updatepilot/shared run build
+if (-not (Test-Path apps/server/.env.local)) { Copy-Item apps/server/.env.example apps/server/.env.local }
+if (-not (Test-Path apps/agent/.env.local)) { Copy-Item apps/agent/.env.example apps/agent/.env.local }
 ```
 
-### 2. Start the Backend API Server
-```bash
-npm run dev:server
-# Server starts on http://localhost:4000
+Run the following three times for three different random values:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-### 3. Start the Web Dashboard
-```bash
-npm run dev:web
-# Web UI opens on http://localhost:3000
+In `apps/server/.env.local`, set `DASHBOARD_PASSWORD`, `SESSION_SECRET`, and `AGENT_PAIRING_CODE`. Copy the pairing code into `apps/agent/.env.local`. Keep these files private. SQLite is the default local database. The application binds to loopback and is designed for one trusted local operator.
+
+For a fresh install, apply the migrations:
+
+```powershell
+npm.cmd --workspace=@updatepilot/server run db:generate
+npm.cmd --workspace=@updatepilot/server run db:migrate
 ```
 
-### 4. Run the Windows Agent
-To discover installed applications and start real-time telemetry:
-```bash
-npm run dev:agent
+If you already used the old prototype, back up the SQLite database and set `DATABASE_URL="file:./pilot.db"` in `apps/server/.env.local` before running the migrations. This creates a fresh demo database and preserves the old one. Existing agent credentials from the prototype must be re-paired.
+
+For labelled sample data, set `DATABASE_URL="file:./demo.db"`, run the migration, then run `npm.cmd --workspace=@updatepilot/server run seed`. Keep this database separate from the real Windows acceptance test.
+
+Run these commands in three separate terminals, in order:
+
+```powershell
+npm.cmd run dev:server
+npm.cmd run dev:web
+npm.cmd run dev:agent
 ```
-Or run a one-time scan:
-```bash
-npm --workspace=@updatepilot/agent run scan-once
+
+Open [the local dashboard](http://localhost:3000), sign in, and wait for the agent's initial scan. Remove the pairing code from the agent's local environment file after it has saved a working credential. Rotate the server setup code after pairing if you need to invalidate the old setup code. Keep the agent running while using the dashboard. Run a scan without leaving the agent running with `npm.cmd --workspace=@updatepilot/agent run scan-once`.
+
+## Build and test
+
+```powershell
+npm.cmd test
+npm.cmd run build
+npm.cmd --workspace=@updatepilot/agent run package:windows
 ```
 
----
+The agent package is `apps/agent/dist/UpdatePilot-Windows-Agent.zip`. Extract it to a private folder and follow its README. It requires Node.js and WinGet. The tests use an isolated SQLite database and simulated update results. To include a real inventory scan, build the package first, set `$env:UPDATEPILOT_LIVE_SCAN = '1'`, and run `npm.cmd test` again. That check reads the local inventory and performs no updates.
 
-## Key Features Implemented (Milestones 1 & 2)
+After building the web app, set `UPDATEPILOT_BROWSER_SMOKE=1` to include a Playwright browser smoke test. Provide `UPDATEPILOT_PLAYWRIGHT_PATH` if Playwright is installed outside the project, and `UPDATEPILOT_CHROMIUM_PATH` if using an installed Chrome or Edge executable. Leave ports 4000 and 3210 available for this test. You can set `UPDATEPILOT_WEB_DIST_DIR` to use a separate build folder for both the build and test.
 
-- **Live Host Discovery**: Real-time integration with `winget list` discovers installed apps on the host machine and categorizes them into `up_to_date`, `update_available`, and `unsupported/registry`.
-- **Overview Dashboard**: Fleet health donut chart, summary metrics, host machine telemetry, and live audit timeline.
-- **Searchable Inventory**: Multi-attribute search (app name, package ID, publisher), filter by status/source, sorting, and pagination.
-- **Application Detail View**: Detailed view showing publisher, package identifier, version info, changelog links, and package homepage links.
-- **Update Center**: Displays available updates with current vs target version comparison, major version jump warnings, and changelog references.
-- **Safe Update Confirmation**: Strict authorization gate requiring explicit user confirmation before any system-changing update command executes. Streams output logs and validates exit code.
-- **Post-Update Verification**: Automatically re-queries package state to verify that the upgraded version is properly installed before marking success.
-- **Security Insights**: Surfaces verified vulnerability advisories (CVE / OSV) mapped to matched package IDs.
-- **Audit & History**: Immutable audit log of all scans, updates, and errors with export functionality to CSV and JSON.
-- **Agent Pairing & Security**: Narrow, authenticated agent API with token rotation and revocation support.
+The dashboard supports WinGet community packages with a known installed version and an exact target. Metadata comes from [WinGet](https://learn.microsoft.com/windows/package-manager/winget/show) where available. Release information is limited to the first twelve eligible updates per scan. WinGet text parsing currently expects English headings. An installer may require user interaction or a restart. Scan again before retrying an unverified update.
+
+Set `SCAN_INTERVAL_MINUTES` in the agent's local environment to enable periodic scans while it is running. Browser notifications can be enabled from Settings and require the dashboard to be open. Set `ENABLE_OSV_ADVISORIES=true` on the server to opt in to [OSV](https://google.github.io/osv.dev/post-v1-query/) advisory matching for supported package installations.
+
+## Docker & PostgreSQL (Optional Production Setup)
+
+To run the PostgreSQL database and backend server via Docker Compose:
+
+```powershell
+docker compose up -d
+```
+
+This starts PostgreSQL on port `5432` with persistent storage in the `pgdata` volume and the API server on port `4000`.
+
+## Interactive API Documentation
+
+When the server is running, visit the interactive Swagger UI at:
+* **Interactive UI**: [http://127.0.0.1:4000/api-docs](http://127.0.0.1:4000/api-docs)
+* **OpenAPI 3.0 Spec**: [http://127.0.0.1:4000/api/v1/openapi.json](http://127.0.0.1:4000/api/v1/openapi.json)
+
+## Documentation & Reference
+
+* [Architecture & System Flow](docs/ARCHITECTURE.md)
+* [Security, Privacy & Safe Update Policy](docs/SECURITY-PRIVACY.md)
+* [UI/UX Design System & Screen Specifications](docs/DESIGN-SYSTEM.md)
+* [User Guide & Troubleshooting Manual](docs/USER-GUIDE.md)
+* [API Reference](docs/API.md)
+* [Windows Release Checklist & Acceptance](docs/RELEASE-CHECKLIST.md)

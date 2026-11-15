@@ -1,6 +1,7 @@
 import { prisma } from '../prisma';
 import { Application, DashboardMetrics } from '@updatepilot/shared';
 import { AuditService } from './auditService';
+import { SecurityService } from './securityService';
 
 export class InventoryService {
   static async reportScanResult(params: {
@@ -21,93 +22,108 @@ export class InventoryService {
   }) {
     const { deviceId, scanJobId, applications } = params;
 
-    let updatesFound = 0;
-
-    for (const app of applications) {
-      if (app.updateStatus === 'update_available') {
-        updatesFound++;
-      }
-
-      // Upsert application record
-      const existing = await prisma.application.findFirst({
-        where: {
-          deviceId,
-          displayName: app.displayName,
-          packageId: app.packageId || null,
-        },
+    const updatesFound = await prisma.$transaction(async tx => {
+      const scannedAt = new Date();
+      const claimed = await tx.scanJob.updateMany({
+        where: { id: scanJobId, deviceId, state: 'running' },
+        data: { state: 'completed', completedAt: scannedAt },
       });
+      if (!claimed.count) return null;
+      let updatesFound = 0;
 
-      if (existing) {
-        await prisma.application.update({
-          where: { id: existing.id },
-          data: {
-            installedVersion: app.installedVersion,
-            availableVersion: app.availableVersion,
-            publisher: app.publisher,
-            updateStatus: app.updateStatus,
-            source: app.source,
-            releaseDate: app.releaseDate,
-            changelogUrl: app.changelogUrl,
-            homepageUrl: app.homepageUrl,
-            lastScannedAt: new Date(),
-          },
-        });
-      } else {
-        await prisma.application.create({
-          data: {
+      for (const app of applications) {
+        if (app.updateStatus === 'update_available') {
+          updatesFound++;
+        }
+
+        // Upsert application record
+        const existing = await tx.application.findFirst({
+          where: {
             deviceId,
             displayName: app.displayName,
-            publisher: app.publisher,
-            installedVersion: app.installedVersion,
-            availableVersion: app.availableVersion,
-            packageId: app.packageId,
-            source: app.source,
-            updateStatus: app.updateStatus,
-            releaseDate: app.releaseDate,
-            changelogUrl: app.changelogUrl,
-            homepageUrl: app.homepageUrl,
-            lastScannedAt: new Date(),
+            packageId: app.packageId || null,
           },
         });
-      }
 
-      // If availableVersion and packageId are present, record release metadata
-      if (app.packageId && app.availableVersion) {
-        await prisma.releaseMetadata.upsert({
-          where: {
-            packageId_version: {
+        if (existing) {
+          await tx.application.update({
+            where: { id: existing.id },
+            data: {
+              installedVersion: app.installedVersion,
+              availableVersion: app.availableVersion,
+              publisher: app.publisher,
+              updateStatus: app.updateStatus,
+              source: app.source,
+              releaseDate: app.releaseDate,
+              changelogUrl: app.changelogUrl,
+              homepageUrl: app.homepageUrl,
+              lastScannedAt: scannedAt,
+            },
+          });
+        } else {
+          await tx.application.create({
+            data: {
+              deviceId,
+              displayName: app.displayName,
+              publisher: app.publisher,
+              installedVersion: app.installedVersion,
+              availableVersion: app.availableVersion,
+              packageId: app.packageId,
+              source: app.source,
+              updateStatus: app.updateStatus,
+              releaseDate: app.releaseDate,
+              changelogUrl: app.changelogUrl,
+              homepageUrl: app.homepageUrl,
+              lastScannedAt: scannedAt,
+            },
+          });
+        }
+
+        // If availableVersion and packageId are present, record release metadata
+        if (app.packageId && app.availableVersion) {
+          await tx.releaseMetadata.upsert({
+            where: {
+              packageId_version: {
+                packageId: app.packageId,
+                version: app.availableVersion,
+              },
+            },
+            update: {
+              releaseDate: app.releaseDate,
+              changelogUrl: app.changelogUrl,
+              source: app.source,
+              fetchedTime: new Date(),
+            },
+            create: {
               packageId: app.packageId,
               version: app.availableVersion,
+              releaseDate: app.releaseDate,
+              changelogUrl: app.changelogUrl,
+              source: app.source,
+              fetchedTime: new Date(),
             },
-          },
-          update: {
-            releaseDate: app.releaseDate,
-            changelogUrl: app.changelogUrl,
-            source: app.source,
-            fetchedTime: new Date(),
-          },
-          create: {
-            packageId: app.packageId,
-            version: app.availableVersion,
-            releaseDate: app.releaseDate,
-            changelogUrl: app.changelogUrl,
-            source: app.source,
-            fetchedTime: new Date(),
-          },
-        });
+          });
+        }
       }
-    }
 
-    // Update scan job record
-    await prisma.scanJob.update({
-      where: { id: scanJobId },
-      data: {
-        state: 'completed',
-        totalApps: applications.length,
-        updatesFound,
-        completedAt: new Date(),
-      },
-    });
+      await tx.application.updateMany({
+        where: { deviceId, lastScannedAt: { lt: scannedAt } },
+        data: { updateStatus: 'unknown', availableVersion: null },
+      });
+
+      // Update scan job record
+      await tx.scanJob.update({
+        where: { id: scanJobId },
+        data: {
+          state: 'completed',
+          totalApps: applications.length,
+          updatesFound,
+          inventorySnapshot: JSON.stringify(applications),
+        },
+      });
+      return updatesFound;
+    }, { timeout: 30_000 });
+    if (updatesFound === null) return null;
 
     await AuditService.record({
       actor: 'agent',
@@ -200,17 +216,10 @@ export class InventoryService {
       });
     }
 
-    // Check for associated security findings
-    const securityFindings = app.packageId
-      ? await prisma.securityFinding.findMany({
-          where: { packageId: app.packageId },
-        })
-      : [];
-
     return {
       ...app,
       releaseMetadata,
-      securityFindings,
+      securityFindings: await SecurityService.getFindings(id),
     };
   }
 
@@ -239,7 +248,6 @@ export class InventoryService {
       updatesAvailable,
       upToDate,
       unsupportedOrUnknown,
-      securityAdvisoriesCount,
       activeDevices,
       lastScanJob,
     ] = await Promise.all([
@@ -249,7 +257,6 @@ export class InventoryService {
       prisma.application.count({
         where: { updateStatus: { in: ['unknown', 'unsupported'] } },
       }),
-      prisma.securityFinding.count(),
       prisma.device.count({ where: { status: 'online' } }),
       prisma.scanJob.findFirst({
         where: { state: 'completed' },
@@ -266,7 +273,7 @@ export class InventoryService {
       updatesAvailable,
       upToDate,
       unsupportedOrUnknown,
-      securityAdvisoriesCount,
+      securityAdvisoriesCount: 0,
       connectedDevices: activeDevices,
       lastScanTime: lastScanJob?.completedAt ? lastScanJob.completedAt.toISOString() : null,
       agentStatus: primaryDevice ? (primaryDevice.status as any) : 'offline',

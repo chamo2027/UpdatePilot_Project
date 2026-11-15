@@ -1,71 +1,136 @@
+import { z } from 'zod';
 import { prisma } from '../prisma';
 
-export class SecurityService {
-  static async getFindings() {
-    return prisma.securityFinding.findMany({
-      orderBy: { lastVerifiedTime: 'desc' },
+export interface MappedPackage {
+  packageId: string;
+  name: string;
+  upstream: string;
+  ecosystem: string;
+  versionPattern: RegExp;
+}
+
+export const SUPPORTED_PACKAGES: Record<string, MappedPackage> = {
+  'GitHub.cli': {
+    packageId: 'GitHub.cli',
+    name: 'GitHub CLI',
+    upstream: 'github.com/cli/cli/v2',
+    ecosystem: 'Go',
+    versionPattern: /^2\.\d+\.\d+$/,
+  },
+  'Git.Git': {
+    packageId: 'Git.Git',
+    name: 'Git for Windows',
+    upstream: 'github.com/git/git',
+    ecosystem: 'Go',
+    versionPattern: /^2\.\d+\.\d+$/,
+  },
+};
+
+const responseSchema = z.object({
+  vulns: z.array(z.object({
+    id: z.string().regex(/^[A-Za-z0-9-]+$/),
+    summary: z.string().optional(),
+    withdrawn: z.string().optional(),
+    affected: z.array(z.object({
+      package: z.object({ name: z.string(), ecosystem: z.string() }).optional(),
+    })).optional(),
+    database_specific: z.object({ severity: z.string().optional() }).optional(),
+  })).optional(),
+  next_page_token: z.string().optional(),
+});
+
+export type Finding = {
+  id: string;
+  advisoryId: string;
+  title: string;
+  summary: string;
+  severity: string;
+  packageId: string;
+  packageName: string;
+  source: string;
+  affectedRange: string;
+  lastVerifiedTime: string;
+  advisoryUrl: string;
+};
+
+const cache = new Map<string, { expires: number; findings: Promise<Finding[]> }>();
+
+export async function queryPackageAdvisories(pkg: MappedPackage, version: string, fetcher = fetch): Promise<Finding[]> {
+  if (!pkg.versionPattern.test(version)) return [];
+  const response = await fetcher('https://api.osv.dev/v1/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ package: { name: pkg.upstream, ecosystem: pkg.ecosystem }, version }),
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!response.ok) throw new Error('OSV advisory service unavailable.');
+  const data = responseSchema.parse(await response.json());
+  const checked = new Date().toISOString();
+  return (data.vulns || [])
+    .filter(advisory => !advisory.withdrawn && advisory.affected?.some(item =>
+      item.package?.name === pkg.upstream && item.package.ecosystem === pkg.ecosystem))
+    .map(advisory => {
+      const severity = advisory.database_specific?.severity?.toLowerCase();
+      return {
+        id: advisory.id + ':' + pkg.packageId + ':' + version,
+        advisoryId: advisory.id,
+        title: advisory.summary || advisory.id,
+        summary: 'OSV matched this upstream version. Check the source for platform and configuration details.',
+        severity: severity && ['critical', 'high', 'medium', 'low'].includes(severity) ? severity : 'unknown',
+        packageId: pkg.packageId,
+        packageName: pkg.name,
+        source: 'OSV',
+        affectedRange: version,
+        lastVerifiedTime: checked,
+        advisoryUrl: 'https://osv.dev/vulnerability/' + advisory.id,
+      };
     });
-  }
+}
 
-  static async seedKnownAdvisories() {
-    const existing = await prisma.securityFinding.count();
-    if (existing > 0) return;
+export async function queryGitHubCliAdvisories(version: string, fetcher = fetch): Promise<Finding[]> {
+  const pkg = SUPPORTED_PACKAGES['GitHub.cli'];
+  const findings = await queryPackageAdvisories(pkg, version, fetcher);
+  return findings.map(f => ({ ...f, id: f.advisoryId + ':' + version }));
+}
 
-    const initialFindings = [
-      {
-        packageId: 'Git.Git',
-        packageName: 'Git for Windows',
-        installedVersion: '2.44.0',
-        advisoryId: 'CVE-2024-32002',
-        title: 'Recursive clones can lead to remote code execution',
-        severity: 'critical',
-        affectedRange: '< 2.45.1',
-        fixedVersion: '2.45.1',
-        source: 'NVD / GitHub Security Advisory',
-        summary: 'Repositories with submodules can be crafted in a way that exploits a bug in Git on case-insensitive filesystems to execute arbitrary code during a recursive clone.',
+export class SecurityService {
+  static async getFindings(applicationId?: string) {
+    if (process.env.ENABLE_OSV_ADVISORIES !== 'true') return [];
+    const supportedIds = Object.keys(SUPPORTED_PACKAGES);
+    const packages = await prisma.application.findMany({
+      where: {
+        id: applicationId,
+        packageId: { in: supportedIds },
+        source: 'winget',
+        updateStatus: { in: ['up_to_date', 'update_available'] },
+        device: { status: { not: 'unpaired' } },
       },
-      {
-        packageId: 'OpenJS.NodeJS.LTS',
-        packageName: 'Node.js LTS',
-        installedVersion: '20.12.0',
-        advisoryId: 'CVE-2024-27980',
-        title: 'Command injection via args parameter of child_process.spawn',
-        severity: 'high',
-        affectedRange: '< 20.12.2',
-        fixedVersion: '20.12.2',
-        source: 'OpenJS Security Working Group',
-        summary: 'On Windows, bat and cmd files can be executed through child_process without proper argument escaping.',
-      },
-      {
-        packageId: '7zip.7zip',
-        packageName: '7-Zip',
-        installedVersion: '23.01',
-        advisoryId: 'CVE-2024-0865',
-        title: 'Memory corruption vulnerability in archive extraction',
-        severity: 'medium',
-        affectedRange: '< 24.01',
-        fixedVersion: '24.01',
-        source: 'MITRE CVE',
-        summary: 'Improper bounds checking when handling corrupted tar or 7z streams could cause an unexpected process termination.',
-      },
-      {
-        packageId: 'Python.Python.3.11',
-        packageName: 'Python 3.11',
-        installedVersion: '3.11.8',
-        advisoryId: 'CVE-2024-4032',
-        title: 'ipaddress module accepts leading zeros in IPv4 octets',
-        severity: 'medium',
-        affectedRange: '< 3.11.9',
-        fixedVersion: '3.11.9',
-        source: 'Python Software Foundation',
-        summary: 'The ipaddress module could misinterpret octal IPv4 string formats, leading to SSRF bypass in applications evaluating IP ranges.',
-      },
-    ];
+      select: { packageId: true, installedVersion: true },
+      distinct: ['packageId', 'installedVersion'],
+      take: 24,
+    });
 
-    for (const f of initialFindings) {
-      await prisma.securityFinding.create({
-        data: f,
+    const findings = await Promise.all(packages.map(({ packageId, installedVersion }) => {
+      const pkg = packageId ? SUPPORTED_PACKAGES[packageId] : undefined;
+      if (!pkg) return Promise.resolve([]);
+      const cacheKey = `${pkg.packageId}:${installedVersion}`;
+      const now = Date.now();
+      const cached = cache.get(cacheKey);
+      if (cached && cached.expires > now) return cached.findings;
+      const entry = {
+        expires: now + 60 * 60_000,
+        findings: pkg.packageId === 'GitHub.cli'
+          ? queryGitHubCliAdvisories(installedVersion)
+          : queryPackageAdvisories(pkg, installedVersion),
+      };
+      entry.findings = entry.findings.catch(() => {
+        entry.expires = Date.now() + 5 * 60_000;
+        return [];
       });
-    }
+      if (cache.size >= 128) cache.clear();
+      cache.set(cacheKey, entry);
+      return entry.findings;
+    }));
+    return findings.flat();
   }
 }

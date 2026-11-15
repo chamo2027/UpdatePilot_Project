@@ -9,6 +9,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     },
   });
 
+  if (res.status === 401) window.dispatchEvent(new Event('updatepilot:session-expired'));
   const json = await res.json();
   if (!res.ok || json.success === false) {
     throw new Error(json.error || `Request failed with status ${res.status}`);
@@ -47,13 +48,17 @@ export const api = {
   getUpdates: () => fetchJson<any[]>(`${API_BASE}/updates`),
   previewUpdate: (appId: string) =>
     fetchJson<any>(`${API_BASE}/updates/${appId}/preview`, { method: 'POST' }),
-  executeUpdate: (appId: string) =>
+  executeUpdate: (appId: string, targetVersion: string) =>
     fetchJson<any>(`${API_BASE}/updates/${appId}/execute`, {
       method: 'POST',
-      body: JSON.stringify({ applicationId: appId, confirmedByUser: true }),
+      body: JSON.stringify({ applicationId: appId, targetVersion, confirmedByUser: true }),
     }),
   getJob: (jobId: string) => fetchJson<any>(`${API_BASE}/jobs/${jobId}`),
   getHistory: () => fetchJson<any[]>(`${API_BASE}/history`),
+  cancelUpdate: (jobId: string) =>
+    fetchJson<any>(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' }),
+  getReport: (kind: 'inventory' | 'updates') =>
+    fetchJson<Record<string, unknown>[]>(`${API_BASE}/reports/${kind}`),
   getSecurityFindings: () => fetchJson<any[]>(`${API_BASE}/security/findings`),
   revokeDevice: (deviceId: string) =>
     fetchJson<any>(`${API_BASE}/devices/${deviceId}/revoke`, { method: 'POST' }),

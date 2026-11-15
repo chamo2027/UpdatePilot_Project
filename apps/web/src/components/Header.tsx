@@ -21,7 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isOnline = device?.status === 'online';
 
   return (
-    <header className="h-16 border-b border-surface-border bg-surface px-6 flex items-center justify-between sticky top-0 z-40">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between gap-2 border-b border-surface-border bg-surface px-3 md:px-6">
       {/* Brand & System */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2.5">
@@ -31,11 +31,11 @@ export const Header: React.FC<HeaderProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold tracking-tight text-foreground text-lg">UpdatePilot</span>
-              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-500 border border-brand-500/20">
+              <span className="hidden rounded border border-brand-500/20 bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-500 sm:inline">
                 MVP v1.0
               </span>
             </div>
-            <p className="text-xs text-neutral-400 -mt-0.5">Software Update Intelligence & Management</p>
+            <p className="-mt-0.5 hidden text-xs text-neutral-400 sm:block">Software Update Intelligence & Management</p>
           </div>
         </div>
 
@@ -64,6 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-3">
         <button
           id="btn-trigger-scan"
+          aria-label="Scan installed applications"
           onClick={onTriggerScan}
           disabled={isScanning || !isOnline}
           className={`flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all ${

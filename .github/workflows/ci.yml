@@ -1,0 +1,52 @@
+name: UpdatePilot CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-and-build:
+    name: Build & Automated Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared contracts
+        run: npm --workspace=@updatepilot/shared run build
+
+      - name: Generate Prisma client
+        run: npm --workspace=@updatepilot/server run db:generate
+
+      - name: Run automated test suite
+        run: npm test
+
+      - name: Build Next.js Dashboard
+        run: npm --workspace=@updatepilot/web run build
+
+      - name: Build Server
+        run: npm --workspace=@updatepilot/server run build
+
+      - name: Package Windows Agent
+        run: npm --workspace=@updatepilot/agent run package:windows
+
+      - name: Verify Windows Agent ZIP artifact
+        shell: pwsh
+        run: |
+          if (-not (Test-Path apps/agent/dist/UpdatePilot-Windows-Agent.zip)) {
+            throw "UpdatePilot-Windows-Agent.zip was not generated."
+          }
+          Write-Host "Windows Agent artifact successfully built and verified."
+

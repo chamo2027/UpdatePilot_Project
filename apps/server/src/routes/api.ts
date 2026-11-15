@@ -4,6 +4,9 @@ import { DeviceService } from '../services/deviceService';
 import { JobService } from '../services/jobService';
 import { SecurityService } from '../services/securityService';
 import { AuditService } from '../services/auditService';
+import { protectDashboard } from '../access';
+import { prisma } from '../prisma';
+import { setupSwagger } from '../openapi';
 import {
   PairAgentSchema,
   ReportScanResultSchema,
@@ -12,6 +15,20 @@ import {
 } from '@updatepilot/shared';
 
 export const router = Router();
+setupSwagger(router);
+protectDashboard(router);
+
+router.use('/agent', async (req, res, next) => {
+  try {
+    const token = req.get('authorization')?.match(/^Bearer (up_tok_[a-f0-9]{64})$/)?.[1];
+    const device = token && await DeviceService.authenticate(token);
+    if (!device) return res.status(401).json({ error: 'Agent credentials are invalid or revoked.' });
+    res.locals.deviceId = device.id;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+});
 
 // ==========================================
 // 1. Dashboard Metrics
@@ -46,7 +63,7 @@ router.post('/devices/pair', async (req: Request, res: Response) => {
     const result = await DeviceService.pairDevice(parse.data);
     return res.json({ success: true, data: result });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(403).json({ success: false, error: 'Pairing refused. Check the pairing code or existing credentials.' });
   }
 });
 
@@ -146,8 +163,10 @@ router.post('/updates/:id/execute', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: parse.error.format() });
     }
 
+    if (req.params.id !== parse.data.applicationId) return res.status(400).json({ error: 'Application ID mismatch.' });
     const job = await JobService.executeUpdate({
       applicationId: req.params.id,
+      targetVersion: parse.data.targetVersion,
       confirmedByUser: parse.data.confirmedByUser,
       initiator: 'user',
     });
@@ -169,6 +188,16 @@ router.get('/jobs/:id', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/jobs/:id/cancel', async (req, res, next) => {
+  try {
+    const job = await JobService.cancelUpdate(req.params.id);
+    if (!job) return res.status(409).json({ error: 'Only queued updates can be cancelled.' });
+    return res.json({ success: true, data: job });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 // ==========================================
 // 6. History & Reporting
 // ==========================================
@@ -178,6 +207,29 @@ router.get('/history', async (req: Request, res: Response) => {
     return res.json({ success: true, data: history });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/reports/:kind', async (req, res, next) => {
+  try {
+    if (req.params.kind === 'inventory') {
+      const applications = await prisma.application.findMany({ orderBy: { displayName: 'asc' } });
+      return res.json({ success: true, data: applications });
+    }
+    if (req.params.kind === 'updates') {
+      const jobs = await prisma.updateJob.findMany({
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, deviceId: true, applicationName: true, packageId: true, fromVersion: true,
+          targetVersion: true, verifiedVersion: true, state: true, exitCode: true, verificationResult: true,
+          createdAt: true, completedAt: true,
+        },
+      });
+      return res.json({ success: true, data: jobs });
+    }
+    return res.sendStatus(404);
+  } catch (error) {
+    return next(error);
   }
 });
 
@@ -198,10 +250,7 @@ router.get('/security/findings', async (req: Request, res: Response) => {
 // ==========================================
 router.post('/agent/heartbeat', async (req: Request, res: Response) => {
   try {
-    const { deviceId } = req.body;
-    if (!deviceId) {
-      return res.status(400).json({ success: false, error: 'Missing deviceId' });
-    }
+    const { deviceId } = res.locals;
     const device = await DeviceService.heartbeat(deviceId);
     return res.json({ success: true, data: { status: device.status } });
   } catch (error: any) {
@@ -211,14 +260,19 @@ router.post('/agent/heartbeat', async (req: Request, res: Response) => {
 
 router.get('/agent/jobs/pending', async (req: Request, res: Response) => {
   try {
-    const { deviceId } = req.query;
-    if (!deviceId) {
-      return res.status(400).json({ success: false, error: 'Missing deviceId' });
-    }
-    const pendingJob = await JobService.pollPendingJobs(deviceId as string);
+    const pendingJob = await JobService.pollPendingJobs(res.locals.deviceId);
     return res.json({ success: true, data: pendingJob });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/agent/scans', async (_req, res, next) => {
+  try {
+    const job = await JobService.createScanJob(res.locals.deviceId, 'agent');
+    return res.status(202).json({ success: true, data: job });
+  } catch (error) {
+    return next(error);
   }
 });
 
@@ -228,11 +282,24 @@ router.post('/agent/scans/report', async (req: Request, res: Response) => {
     if (!parse.success) {
       return res.status(400).json({ success: false, error: parse.error.format() });
     }
+    const job = await prisma.scanJob.findFirst({
+      where: { id: parse.data.scanJobId, deviceId: res.locals.deviceId, state: 'running' },
+    });
+    if (!job || parse.data.deviceId !== job.deviceId) return res.status(404).json({ error: 'Active scan not found.' });
+    if (parse.data.error) {
+      await prisma.scanJob.update({
+        where: { id: job.id },
+        data: { state: 'failed', errorMessage: parse.data.error, completedAt: new Date() },
+      });
+      await AuditService.record({ actor: 'agent', deviceId: job.deviceId, eventType: 'SCAN_FAILED', target: job.id });
+      return res.json({ success: true });
+    }
     const result = await InventoryService.reportScanResult({
       deviceId: parse.data.deviceId,
       scanJobId: parse.data.scanJobId,
       applications: parse.data.applications,
     });
+    if (!result) return res.status(404).json({ error: 'Active scan not found.' });
     return res.json({ success: true, data: result });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
@@ -246,12 +313,15 @@ router.post('/agent/updates/report', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: parse.error.format() });
     }
     const result = await JobService.reportUpdateResult({
+      deviceId: res.locals.deviceId,
       jobId: parse.data.jobId,
       exitCode: parse.data.exitCode,
       outputLogs: parse.data.outputLogs,
       verifiedInstalledVersion: parse.data.verifiedInstalledVersion,
       verificationPassed: parse.data.verificationPassed,
+      restartRequired: parse.data.restartRequired,
     });
+    if (!result) return res.status(404).json({ error: 'Active update not found.' });
     return res.json({ success: true, data: result });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });

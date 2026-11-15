@@ -3,7 +3,7 @@ import path from 'path';
 import { getSystemInfo } from './systemInfo';
 import { WingetService } from './winget';
 
-const STATE_FILE = path.join(__dirname, '..', '.agent_state.json');
+const STATE_FILE = path.resolve('.agent_state.json');
 
 export class AgentClient {
   private serverUrl: string;
@@ -50,6 +50,7 @@ export class AgentClient {
           osVersion: sysInfo.osVersion,
           agentVersion: sysInfo.agentVersion,
           pairingToken: this.token || undefined,
+          pairingCode: process.env.AGENT_PAIRING_CODE || undefined,
         }),
       });
 
@@ -84,19 +85,15 @@ export class AgentClient {
   }
 
   async runScan(scanJobId?: string) {
-    if (!this.deviceId) return;
+    if (!this.deviceId) return false;
 
     console.log('[Agent] Initiating live WinGet application inventory discovery...');
+    let jobId = scanJobId;
     try {
-      const apps = await WingetService.listInstalledApplications();
-      console.log(`[Agent] Discovered ${apps.length} applications on local host.`);
-
-      // If no explicit scanJobId provided, request one
-      let jobId = scanJobId;
       if (!jobId) {
-        const createRes = await fetch(`${this.serverUrl}/devices/${this.deviceId}/scans`, {
+        const createRes = await fetch(`${this.serverUrl}/agent/scans`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${this.token}` },
         });
         const createJson: any = await createRes.json();
         jobId = createJson?.data?.id;
@@ -106,7 +103,7 @@ export class AgentClient {
         throw new Error('Failed to obtain a ScanJob ID from server');
       }
 
-      // Report scan results
+      const apps = await WingetService.listInstalledApplications();
       const reportRes = await fetch(`${this.serverUrl}/agent/scans/report`, {
         method: 'POST',
         headers: {
@@ -123,18 +120,27 @@ export class AgentClient {
       const reportJson: any = await reportRes.json();
       if (reportRes.ok && reportJson.success) {
         console.log(`[Agent] Scan results successfully recorded! Total: ${reportJson.data.totalApps}, Updates: ${reportJson.data.updatesFound}`);
+        return true;
       } else {
         console.error('[Agent] Failed to report scan results:', reportJson);
       }
     } catch (err: any) {
       console.error('[Agent] Scan failed:', err.message);
+      if (jobId) {
+        await fetch(`${this.serverUrl}/agent/scans/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
+          body: JSON.stringify({ deviceId: this.deviceId, scanJobId: jobId, applications: [], error: err.message }),
+        }).catch(() => undefined);
+      }
     }
+    return false;
   }
 
   async handleUpdate(job: any) {
     console.log(`[Agent] Received approved update job for ${job.applicationName} (${job.packageId})`);
     try {
-      const result = await WingetService.executeUpdate(job.packageId);
+      const result = await WingetService.executeUpdate(job.packageId, job.fromVersion, job.targetVersion);
 
       await fetch(`${this.serverUrl}/agent/updates/report`, {
         method: 'POST',
@@ -148,6 +154,7 @@ export class AgentClient {
           outputLogs: result.outputLogs,
           verifiedInstalledVersion: result.verifiedVersion,
           verificationPassed: result.verificationPassed,
+          restartRequired: result.restartRequired,
         }),
       });
 
@@ -156,7 +163,10 @@ export class AgentClient {
       console.error(`[Agent] Update execution failed: ${err.message}`);
       await fetch(`${this.serverUrl}/agent/updates/report`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`,
+        },
         body: JSON.stringify({
           jobId: job.id,
           exitCode: 1,

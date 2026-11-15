@@ -7,6 +7,8 @@
     "apps/*"
   ],
   "scripts": {
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-all.ps1",
+    "dev:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-all.ps1",
     "dev:server": "npm --workspace=@updatepilot/server run dev",
     "dev:web": "npm --workspace=@updatepilot/web run dev",
     "dev:agent": "npm --workspace=@updatepilot/agent run dev",

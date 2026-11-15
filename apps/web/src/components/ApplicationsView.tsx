@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+export type InventorySort = 'name' | 'name_desc' | 'publisher' | 'status' | 'recent';
 import {
   Search,
   Filter,
@@ -25,6 +26,8 @@ interface ApplicationsViewProps {
   onStatusFilterChange: (status: string) => void;
   sourceFilter: string;
   onSourceFilterChange: (source: string) => void;
+  sort: InventorySort;
+  onSortChange: (sort: InventorySort) => void;
   onSelectApp: (app: any) => void;
   onOpenUpdateModal: (app: any) => void;
 }
@@ -41,6 +44,8 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
   onStatusFilterChange,
   sourceFilter,
   onSourceFilterChange,
+  sort,
+  onSortChange,
   onSelectApp,
   onOpenUpdateModal,
 }) => {
@@ -63,6 +68,7 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
           <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             id="input-app-search"
+            aria-label="Search applications"
             type="text"
             placeholder="Search by application name, package ID, or publisher..."
             value={search}
@@ -79,6 +85,7 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
           </div>
           <select
             id="select-status-filter"
+            aria-label="Filter by update status"
             value={statusFilter}
             onChange={(e) => onStatusFilterChange(e.target.value)}
             className="bg-surface-muted text-foreground text-xs px-3 py-2 rounded-lg border border-surface-border focus:outline-none focus:border-brand-500"
@@ -92,6 +99,7 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
 
           <select
             id="select-source-filter"
+            aria-label="Filter by package source"
             value={sourceFilter}
             onChange={(e) => onSourceFilterChange(e.target.value)}
             className="bg-surface-muted text-foreground text-xs px-3 py-2 rounded-lg border border-surface-border focus:outline-none focus:border-brand-500"
@@ -99,6 +107,15 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
             <option value="all">All Sources</option>
             <option value="winget">WinGet</option>
             <option value="registry">Windows Registry</option>
+          </select>
+          <select aria-label="Sort applications" value={sort}
+            onChange={event => onSortChange(event.target.value as InventorySort)}
+            className="rounded-lg border border-surface-border bg-surface-muted px-3 py-2 text-xs">
+            <option value="name">Name A–Z</option>
+            <option value="name_desc">Name Z–A</option>
+            <option value="publisher">Publisher</option>
+            <option value="status">Update status</option>
+            <option value="recent">Recently scanned</option>
           </select>
         </div>
       </div>

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export type UpdateStatus = 'up_to_date' | 'update_available' | 'unknown' | 'unsupported';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type UpdateJobStatus = 'pending_confirmation' | 'queued' | 'in_progress' | 'succeeded' | 'failed' | 'cancelled';
+export type UpdateJobStatus = 'pending_confirmation' | 'queued' | 'in_progress' | 'succeeded' | 'failed' | 'cancelled' | 'restart_required';
 export type DeviceStatus = 'online' | 'offline' | 'unpaired';
 export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
@@ -120,7 +120,17 @@ export const PairAgentSchema = z.object({
   deviceName: z.string().min(1),
   osVersion: z.string().min(1),
   agentVersion: z.string().min(1),
-  pairingToken: z.string().optional()
+  pairingToken: z.string().max(128).optional(),
+  pairingCode: z.string().max(128).optional()
+});
+
+const HttpsUrlSchema = z.string().url().refine(value => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 });
 
 export const DetectedAppSchema = z.object({
@@ -132,20 +142,20 @@ export const DetectedAppSchema = z.object({
   source: z.string().default('winget'),
   updateStatus: z.enum(['up_to_date', 'update_available', 'unknown', 'unsupported']),
   releaseDate: z.string().optional().nullable(),
-  changelogUrl: z.string().optional().nullable(),
-  homepageUrl: z.string().optional().nullable()
+  changelogUrl: HttpsUrlSchema.optional().nullable(),
+  homepageUrl: HttpsUrlSchema.optional().nullable()
 });
 
 export const ReportScanResultSchema = z.object({
   scanJobId: z.string(),
   deviceId: z.string(),
-  applications: z.array(DetectedAppSchema),
-  error: z.string().optional()
+  applications: z.array(DetectedAppSchema).max(10_000),
+  error: z.string().max(2_000).optional()
 });
 
 export const ExecuteUpdateSchema = z.object({
   applicationId: z.string(),
-  targetVersion: z.string().optional(),
+  targetVersion: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+~-]{0,127}$/),
   confirmedByUser: z.boolean().refine(val => val === true, {
     message: 'Explicit user confirmation is mandatory before executing an update'
   })
@@ -156,5 +166,6 @@ export const UpdateJobResultSchema = z.object({
   exitCode: z.number(),
   outputLogs: z.string(),
   verifiedInstalledVersion: z.string().optional().nullable(),
-  verificationPassed: z.boolean()
+  verificationPassed: z.boolean(),
+  restartRequired: z.boolean().optional(),
 });

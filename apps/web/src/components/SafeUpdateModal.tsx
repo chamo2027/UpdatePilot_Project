@@ -11,6 +11,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useModalFocus } from '../lib/useModalFocus';
 
 interface SafeUpdateModalProps {
   app: any;
@@ -30,6 +31,9 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobResult, setJobResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [jobState, setJobState] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const dialogRef = useModalFocus(onClose, !isExecuting);
 
   // Load preview details
   useEffect(() => {
@@ -54,10 +58,12 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
     const interval = setInterval(async () => {
       try {
         const job = await api.getJob(activeJobId);
-        if (job.state === 'succeeded' || job.state === 'failed') {
+        setJobState(job.state);
+        if (['succeeded', 'failed', 'cancelled', 'restart_required'].includes(job.state)) {
+          setError(null);
           setIsExecuting(false);
           setJobResult(job);
-          if (job.state === 'succeeded') {
+          if (job.state === 'succeeded' || job.state === 'restart_required') {
             onSuccess();
           }
           clearInterval(interval);
@@ -71,11 +77,12 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
   }, [activeJobId, isExecuting, onSuccess]);
 
   const handleConfirmAndExecute = async () => {
-    if (!confirmed) return;
+    if (!confirmed || !preview) return;
     try {
       setIsExecuting(true);
       setError(null);
-      const res = await api.executeUpdate(app.id);
+      const res = await api.executeUpdate(app.id, preview.targetVersion);
+      setJobState(res.state);
       setActiveJobId(res.id);
     } catch (err: any) {
       setIsExecuting(false);
@@ -85,7 +92,8 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-surface border border-surface-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" tabIndex={-1}
+        className="bg-surface border border-surface-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -93,12 +101,13 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-foreground">Safe Update Confirmation</h2>
+              <h2 id="update-dialog-title" className="text-base font-bold text-foreground">Safe Update Confirmation</h2>
               <p className="text-xs text-neutral-400">Review package identity and authorize execution</p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close update dialog"
             disabled={isExecuting}
             className="p-1 rounded-lg text-neutral-400 hover:text-foreground hover:bg-surface-muted transition-colors"
           >
@@ -113,8 +122,8 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
               <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
               <span>Validating package identity and safety parameters...</span>
             </div>
-          ) : error ? (
-            <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-start gap-2.5">
+          ) : error && !isExecuting && !jobResult ? (
+            <div role="alert" className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-start gap-2.5">
               <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">Verification Error</p>
@@ -128,6 +137,8 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
                 className={`p-4 rounded-xl border flex items-start gap-3 ${
                   jobResult.state === 'succeeded'
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                    : jobResult.state === 'restart_required'
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
                     : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
                 }`}
               >
@@ -140,7 +151,11 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
                   <p className="font-bold text-sm">
                     {jobResult.state === 'succeeded'
                       ? 'Update Installed and Verified!'
-                      : 'Update Process Terminated with Errors'}
+                      : jobResult.state === 'restart_required'
+                      ? 'System Restart Required'
+                      : jobResult.state === 'cancelled'
+                      ? 'Update cancelled'
+                      : 'Update could not be verified'}
                   </p>
                   <p className="text-neutral-300 text-xs mt-1">
                     {jobResult.verificationResult || `Exit code: ${jobResult.exitCode}`}
@@ -165,10 +180,13 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
             <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
               <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
               <div>
-                <p className="font-bold text-foreground text-sm">Executing WinGet Upgrade</p>
-                <p className="text-neutral-400 text-xs mt-1">
-                  Windows Agent is downloading, installing, and performing post-update verification...
+                <p role="status" className="font-bold text-foreground text-sm">
+                  {jobState === 'queued' ? 'Waiting for the Windows agent' : 'Running WinGet update'}
                 </p>
+                <p className="text-neutral-400 text-xs mt-1">
+                  {jobState === 'queued' ? 'The update has not started.' : 'The agent will check the installed version when WinGet finishes.'}
+                </p>
+                {error && <p role="alert">{error}</p>}
               </div>
             </div>
           ) : (
@@ -217,7 +235,7 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
                 />
                 <span className="text-[11px] text-neutral-300 leading-relaxed">
                   I explicitly authorize UpdatePilot to execute this update for{' '}
-                  <strong className="text-foreground">{preview?.displayName}</strong>.
+                  <strong className="text-foreground">{preview?.displayName} {preview?.targetVersion}</strong>.
                 </span>
               </label>
             </div>
@@ -226,6 +244,20 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-6 py-4 border-t border-surface-border bg-surface-muted/30 flex items-center justify-end gap-3">
+          {isExecuting && jobState === 'queued' && activeJobId && (
+            <button disabled={cancelling} className="rounded border border-surface-border px-3 py-2"
+              onClick={async () => {
+                setCancelling(true);
+                try {
+                  setJobResult(await api.cancelUpdate(activeJobId));
+                  setIsExecuting(false);
+                } catch (failure) {
+                  setError(failure instanceof Error ? failure.message : 'Could not cancel this update.');
+                } finally {
+                  setCancelling(false);
+                }
+              }}>Cancel queued update</button>
+          )}
           {jobResult ? (
             <button
               onClick={onClose}

@@ -13,6 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useModalFocus } from '../lib/useModalFocus';
 
 interface AppDetailModalProps {
   appId: string;
@@ -27,6 +28,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 }) => {
   const [details, setDetails] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const dialogRef = useModalFocus(onClose);
 
   useEffect(() => {
     async function load() {
@@ -45,7 +47,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-surface border border-surface-border rounded-xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="app-detail-title" tabIndex={-1}
+        className="bg-surface border border-surface-border rounded-xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -53,12 +56,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-foreground">Application Details</h2>
+              <h2 id="app-detail-title" className="text-base font-bold text-foreground">Application Details</h2>
               <p className="text-xs text-neutral-400">Package identity and release metadata</p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close application details"
             className="p-1 rounded-lg text-neutral-400 hover:text-foreground hover:bg-surface-muted transition-colors"
           >
             <X className="w-4 h-4" />
@@ -114,7 +118,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
               {/* Release Metadata & External Links */}
               <div className="space-y-2">
-                <span className="font-bold text-foreground block">Verified Links & Documentation</span>
+                <span className="font-bold text-foreground block">Release information</span>
+                {details.releaseDate && <p>Release date {details.releaseDate}</p>}
+                {!details.homepageUrl && !details.changelogUrl && !details.releaseDate && (
+                  <p className="text-neutral-400">Release details are unavailable for this version.</p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {details.homepageUrl && (
                     <a
@@ -124,7 +132,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-300 border border-surface-border transition-colors"
                     >
                       <Globe className="w-3.5 h-3.5 text-brand-500" />
-                      <span>Package Directory</span>
+                      <span>Publisher website</span>
                       <ExternalLink className="w-3 h-3 text-neutral-500" />
                     </a>
                   )}
@@ -137,7 +145,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-300 border border-surface-border transition-colors"
                     >
                       <FileText className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Release Manifest</span>
+                      <span>Release notes</span>
                       <ExternalLink className="w-3 h-3 text-neutral-500" />
                     </a>
                   )}

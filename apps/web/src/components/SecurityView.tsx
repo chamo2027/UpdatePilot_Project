@@ -40,7 +40,7 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Security Insights</h1>
           <p className="text-sm text-neutral-400">
-            Verified public vulnerability advisories (CVE / OSV) matched against installed packages.
+            Advisory coverage for supported installed packages.
           </p>
         </div>
       </div>
@@ -51,9 +51,8 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
         <div>
           <p className="font-semibold text-foreground">Conservative Vulnerability Policy</p>
           <p className="text-neutral-400 mt-0.5 leading-relaxed">
-            Per the UpdatePilot specification, security findings are only surfaced when the package
-            identifier and affected version ranges are verifiable against public vulnerability databases.
-            Unverified guesses are suppressed.
+            Optional OSV checks currently cover stable GitHub CLI 2.x releases matched by WinGet.
+            Other applications and configurations may have advisories outside this coverage.
           </p>
         </div>
       </div>
@@ -84,7 +83,8 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
                 </div>
 
                 <div className="text-[11px] text-neutral-400">
-                  Source: <span className="text-neutral-300 font-medium">{f.source}</span>
+                  Source: <a className="underline" href={f.advisoryUrl} target="_blank" rel="noreferrer">{f.source}</a>
+                  <span className="ml-2">Checked {new Date(f.lastVerifiedTime).toLocaleDateString()}</span>
                 </div>
               </div>
 
@@ -98,7 +98,7 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-surface-border text-xs">
                 <div className="flex items-center gap-4 flex-wrap">
                   <div>
-                    <span className="text-neutral-400">Affected Versions: </span>
+                    <span className="text-neutral-400">Matched version </span>
                     <span className="font-mono text-rose-400 font-medium">{f.affectedRange}</span>
                   </div>
                   {f.fixedVersion && (
@@ -115,7 +115,7 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
                   onClick={onNavigateToUpdates}
                   className="text-xs font-semibold text-amber-500 hover:text-amber-400 flex items-center gap-1 self-start sm:self-auto"
                 >
-                  <span>Resolve in Update Center</span>
+                  <span>Review available updates</span>
                   <ExternalLink className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -123,10 +123,10 @@ export const SecurityView: React.FC<SecurityViewProps> = ({
           ))
         ) : (
           <div className="p-12 text-center rounded-xl bg-surface border border-surface-border">
-            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
-            <h3 className="text-base font-bold text-foreground">No Vulnerabilities Identified</h3>
+            <Info className="w-10 h-10 text-neutral-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-foreground">No advisory matches to display</h3>
             <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-              None of your currently matched applications match active high-severity CVE advisories.
+              Checks may be disabled, the source may be unavailable, or there may be no match within current coverage.
             </p>
           </div>
         )}
