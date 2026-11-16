@@ -24,6 +24,7 @@ export const api = {
     fetchJson<any>(`${API_BASE}/devices/${deviceId}/scans`, { method: 'POST' }),
   getScanJob: (jobId: string) => fetchJson<any>(`${API_BASE}/scans/${jobId}`),
   getApplications: (params?: {
+    deviceId?: string;
     search?: string;
     status?: string;
     source?: string;
@@ -33,6 +34,7 @@ export const api = {
     sortOrder?: 'asc' | 'desc';
   }) => {
     const query = new URLSearchParams();
+    if (params?.deviceId) query.set('deviceId', params.deviceId);
     if (params?.search) query.set('search', params.search);
     if (params?.status && params.status !== 'all') query.set('status', params.status);
     if (params?.source && params.source !== 'all') query.set('source', params.source);
@@ -45,7 +47,8 @@ export const api = {
     );
   },
   getApplicationById: (id: string) => fetchJson<any>(`${API_BASE}/applications/${id}`),
-  getUpdates: () => fetchJson<any[]>(`${API_BASE}/updates`),
+  getUpdates: (deviceId?: string) =>
+    fetchJson<any[]>(`${API_BASE}/updates${deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ''}`),
   previewUpdate: (appId: string) =>
     fetchJson<any>(`${API_BASE}/updates/${appId}/preview`, { method: 'POST' }),
   executeUpdate: (appId: string, targetVersion: string) =>

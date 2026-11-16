@@ -11,17 +11,23 @@ export class DeviceService {
     pairingToken?: string;
     pairingCode?: string;
   }) {
-    const existing = data.pairingToken && await this.authenticate(data.pairingToken);
+    let existing = data.pairingToken ? await this.authenticate(data.pairingToken) : null;
     const code = process.env.AGENT_PAIRING_CODE;
     if (!existing && (!code || code.length < 24 || !data.pairingCode || !sameSecret(data.pairingCode, code))) {
       throw new Error('Invalid pairing credentials.');
     }
-    const token = existing ? data.pairingToken! : 'up_tok_' + crypto.randomBytes(32).toString('hex');
+    if (!existing && data.deviceName) {
+      existing = await prisma.device.findFirst({
+        where: { name: data.deviceName, status: { not: 'unpaired' } },
+        select: { id: true },
+      });
+    }
+    const token = 'up_tok_' + crypto.randomBytes(32).toString('hex');
     const metadata = { osVersion: data.osVersion, agentVersion: data.agentVersion };
     const device = existing
       ? await prisma.device.update({
-          where: { id: existing.id, token: hashSecret(token) },
-          data: { ...metadata, lastSeen: new Date(), status: 'online' },
+          where: { id: existing.id },
+          data: { ...metadata, lastSeen: new Date(), status: 'online', token: hashSecret(token) },
         })
       : await prisma.device.create({
           data: { ...metadata, name: data.deviceName, status: 'online', token: hashSecret(token) },

@@ -129,18 +129,20 @@ function Dashboard({ onSignOut }: { onSignOut: () => Promise<void> }) {
   // Fetch Dashboard & Device
   const refreshCore = useCallback(async () => {
     try {
-      const [metricsData, devicesData, updatesData, findingsData, historyData] =
+      const devicesData = await api.getDevices().catch(() => []);
+      const primaryDevice = devicesData[0] || null;
+      setDevice(primaryDevice);
+
+      const [metricsData, updatesData, findingsData, historyData] =
         await Promise.all([
           api.getDashboard().catch(() => null),
-          api.getDevices().catch(() => []),
-          api.getUpdates().catch(() => null),
+          api.getUpdates(primaryDevice?.id).catch(() => null),
           api.getSecurityFindings().catch(() => []),
           api.getHistory().catch(() => []),
         ]);
 
       setConnectionError(!metricsData);
       if (metricsData) setMetrics({ ...metricsData, securityAdvisoriesCount: findingsData.length });
-      setDevice(devicesData[0] || null);
       if (updatesData) setUpdates(updatesData);
       if (findingsData) setFindings(findingsData);
       if (historyData) setHistory(historyData);
@@ -169,6 +171,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const refreshApplications = useCallback(async () => {
     try {
       const res = await api.getApplications({
+        deviceId: device?.id,
         search,
         status: statusFilter,
         source: sourceFilter,
@@ -184,7 +187,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => Promise<void> }) {
     } catch (e) {
       console.error('Error refreshing applications:', e);
     }
-  }, [search, statusFilter, sourceFilter, sort, page]);
+  }, [device?.id, search, statusFilter, sourceFilter, sort, page]);
 
   // Initial mount
   useEffect(() => {

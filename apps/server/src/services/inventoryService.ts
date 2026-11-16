@@ -229,6 +229,8 @@ export class InventoryService {
     };
     if (deviceId) {
       where.deviceId = deviceId;
+    } else {
+      where.device = { status: 'online' };
     }
 
     const apps = await prisma.application.findMany({
