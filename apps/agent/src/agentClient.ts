@@ -148,7 +148,32 @@ export class AgentClient {
   async handleUpdate(job: any) {
     console.log(`[Agent] Received approved update job for ${job.applicationName} (${job.packageId})`);
     try {
-      const result = await WingetService.executeUpdate(job.packageId, job.fromVersion, job.targetVersion);
+      const onProgress = async (prog: { phase: string; percent: number; message: string }) => {
+        try {
+          await fetch(`${this.serverUrl}/agent/updates/progress`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.token}`,
+            },
+            body: JSON.stringify({
+              jobId: job.id,
+              progressPercent: prog.percent,
+              progressPhase: prog.phase,
+              progressMessage: prog.message,
+            }),
+          });
+        } catch {
+          // ignore progress network error
+        }
+      };
+
+      const result = await WingetService.executeUpdate(
+        job.packageId,
+        job.fromVersion,
+        job.targetVersion,
+        onProgress
+      );
 
       await fetch(`${this.serverUrl}/agent/updates/report`, {
         method: 'POST',

@@ -70,6 +70,9 @@ export interface UpdateJob {
   fromVersion: string;
   targetVersion: string;
   state: UpdateJobStatus;
+  progressPercent?: number | null;
+  progressPhase?: string | null;
+  progressMessage?: string | null;
   initiator: string; // 'user' | 'agent'
   exitCode?: number | null;
   outputLogs?: string | null;
@@ -168,4 +171,11 @@ export const UpdateJobResultSchema = z.object({
   verifiedInstalledVersion: z.string().optional().nullable(),
   verificationPassed: z.boolean(),
   restartRequired: z.boolean().optional(),
+});
+
+export const UpdateProgressSchema = z.object({
+  jobId: z.string(),
+  progressPercent: z.number().min(0).max(100),
+  progressPhase: z.string().max(64),
+  progressMessage: z.string().max(500).optional(),
 });

@@ -107,6 +107,9 @@ model UpdateJob {
   fromVersion        String
   targetVersion      String
   state              String       @default("pending_confirmation") // pending_confirmation, queued, in_progress, succeeded, failed, cancelled
+  progressPercent    Int?         @default(0)
+  progressPhase      String?      @default("queued") // queued, downloading, installing, verifying, completed, failed
+  progressMessage    String?
   initiator          String       @default("user")
   exitCode           Int?
   outputLogs         String?

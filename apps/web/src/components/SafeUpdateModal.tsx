@@ -9,6 +9,10 @@ import {
   AlertTriangle,
   Loader2,
   Terminal,
+  Download,
+  Cpu,
+  Clock,
+  Check,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useModalFocus } from '../lib/useModalFocus';
@@ -32,6 +36,11 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
   const [jobResult, setJobResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobState, setJobState] = useState('');
+  const [jobProgress, setJobProgress] = useState<{
+    percent: number;
+    phase: string;
+    message?: string;
+  }>({ percent: 0, phase: 'queued', message: '' });
   const [cancelling, setCancelling] = useState(false);
   const dialogRef = useModalFocus(onClose, !isExecuting);
 
@@ -59,6 +68,13 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
       try {
         const job = await api.getJob(activeJobId);
         setJobState(job.state);
+        if (job.progressPercent !== undefined && job.progressPercent !== null) {
+          setJobProgress({
+            percent: job.progressPercent,
+            phase: job.progressPhase || (job.state === 'queued' ? 'queued' : 'downloading'),
+            message: job.progressMessage || '',
+          });
+        }
         if (['succeeded', 'failed', 'cancelled', 'restart_required'].includes(job.state)) {
           setError(null);
           setIsExecuting(false);
@@ -176,20 +192,138 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
               )}
             </div>
           ) : isExecuting ? (
-            /* Live execution progress */
-            <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-              <div>
-                <p role="status" className="font-bold text-foreground text-sm">
-                  {jobState === 'queued' ? 'Queued — Waiting for agent' : 'Running WinGet update'}
-                </p>
-                <p className="text-neutral-400 text-xs mt-1">
-                  {jobState === 'queued'
-                    ? 'Update is queued. The agent executes one package at a time to prevent Windows installer collisions.'
-                    : 'The agent will check the installed version when WinGet finishes.'}
-                </p>
-                {error && <p role="alert">{error}</p>}
+            /* Live execution progress with dynamic progress bar and stages */
+            <div className="py-6 px-1 space-y-6">
+              {/* Header Icon & Status */}
+              <div className="flex flex-col items-center justify-center text-center gap-3">
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shadow-inner">
+                    {jobProgress.phase === 'downloading' ? (
+                      <Download className="w-7 h-7 animate-bounce" />
+                    ) : jobProgress.phase === 'installing' ? (
+                      <Cpu className="w-7 h-7 animate-pulse text-blue-400" />
+                    ) : jobProgress.phase === 'verifying' ? (
+                      <ShieldCheck className="w-7 h-7 text-emerald-400" />
+                    ) : (
+                      <Clock className="w-7 h-7 text-amber-500" />
+                    )}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-surface border border-surface-border flex items-center justify-center">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 role="status" className="font-bold text-foreground text-base tracking-tight">
+                    {jobState === 'queued'
+                      ? 'Queued for Windows Agent'
+                      : jobProgress.phase === 'downloading'
+                      ? 'Downloading Package'
+                      : jobProgress.phase === 'installing'
+                      ? 'Installing Application'
+                      : jobProgress.phase === 'verifying'
+                      ? 'Verifying Installation'
+                      : 'Running WinGet Update'}
+                  </h3>
+                  <p className="text-neutral-400 text-xs mt-1 max-w-sm mx-auto">
+                    {jobState === 'queued'
+                      ? 'Waiting for agent to finish any prior installer before starting.'
+                      : jobProgress.message || 'Processing update through Windows Package Manager...'}
+                  </p>
+                </div>
               </div>
+
+              {/* Progress Bar Container */}
+              <div className="space-y-2 bg-surface-muted p-4 rounded-xl border border-surface-border">
+                <div className="flex justify-between items-center text-xs font-semibold">
+                  <span className="text-neutral-300 capitalize flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping inline-block" />
+                    {jobProgress.phase || 'downloading'}
+                  </span>
+                  <span className="font-mono text-amber-400 font-bold text-sm">
+                    {Math.max(5, Math.min(100, jobProgress.percent))}%
+                  </span>
+                </div>
+
+                {/* The Bar */}
+                <div className="w-full bg-neutral-800 rounded-full h-3.5 overflow-hidden p-0.5 border border-surface-border/50">
+                  <div
+                    className="bg-gradient-to-r from-amber-500 via-brand-500 to-emerald-400 h-full rounded-full transition-all duration-700 ease-out shadow-sm"
+                    style={{ width: `${Math.max(5, Math.min(100, jobProgress.percent))}%` }}
+                  />
+                </div>
+
+                {/* Sub-label under bar */}
+                <div className="flex justify-between text-[11px] text-neutral-400 pt-0.5">
+                  <span>{preview?.displayName}</span>
+                  <span className="font-mono text-neutral-300">v{preview?.targetVersion}</span>
+                </div>
+              </div>
+
+              {/* 4-Step Milestone Tracker */}
+              <div className="grid grid-cols-4 gap-2 text-center text-[10px]">
+                {/* Step 1: Queued */}
+                <div className={`p-2 rounded-lg border flex flex-col items-center gap-1 ${
+                  jobState === 'queued'
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
+                    : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                }`}>
+                  <Check className="w-3.5 h-3.5" />
+                  <span className="font-medium">1. Queued</span>
+                </div>
+
+                {/* Step 2: Download */}
+                <div className={`p-2 rounded-lg border flex flex-col items-center gap-1 ${
+                  jobState === 'queued'
+                    ? 'border-surface-border bg-surface-muted text-neutral-500'
+                    : jobProgress.phase === 'downloading'
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
+                    : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                }`}>
+                  {jobProgress.phase === 'downloading' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : jobProgress.phase === 'installing' || jobProgress.phase === 'verifying' ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span className="font-medium">2. Download</span>
+                </div>
+
+                {/* Step 3: Install */}
+                <div className={`p-2 rounded-lg border flex flex-col items-center gap-1 ${
+                  jobProgress.phase === 'installing'
+                    ? 'border-blue-500/40 bg-blue-500/10 text-blue-400'
+                    : jobProgress.phase === 'verifying'
+                    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                    : 'border-surface-border bg-surface-muted text-neutral-500'
+                }`}>
+                  {jobProgress.phase === 'installing' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : jobProgress.phase === 'verifying' ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Cpu className="w-3.5 h-3.5" />
+                  )}
+                  <span className="font-medium">3. Install</span>
+                </div>
+
+                {/* Step 4: Verify */}
+                <div className={`p-2 rounded-lg border flex flex-col items-center gap-1 ${
+                  jobProgress.phase === 'verifying'
+                    ? 'border-purple-500/40 bg-purple-500/10 text-purple-400'
+                    : 'border-surface-border bg-surface-muted text-neutral-500'
+                }`}>
+                  {jobProgress.phase === 'verifying' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                  )}
+                  <span className="font-medium">4. Verify</span>
+                </div>
+              </div>
+
+              {error && <p role="alert" className="text-rose-400 text-xs text-center">{error}</p>}
             </div>
           ) : (
             /* Proposal Details & Review */

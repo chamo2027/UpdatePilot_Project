@@ -51,18 +51,27 @@ export function parseReleaseDetails(stdout: string): ReleaseDetails {
   };
 }
 
-function runProcess(cmd: string, args: string[], timeout = 120_000): Promise<{ stdout: string; stderr: string; code: number }> {
+function runProcess(
+  cmd: string,
+  args: string[],
+  timeout = 120_000,
+  onData?: (data: string) => void
+): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { windowsHide: true, timeout });
     let stdout = '';
     let stderr = '';
 
     child.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const text = data.toString();
+      stdout += text;
+      if (onData) onData(text);
     });
 
     child.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const text = data.toString();
+      stderr += text;
+      if (onData) onData(text);
     });
 
     child.on('close', (code) => {
@@ -201,7 +210,12 @@ export class WingetService {
   /**
    * Executes a safe, allowlisted update command for an approved package ID.
    */
-  static async executeUpdate(packageId: string, fromVersion: string, targetVersion: string): Promise<{
+  static async executeUpdate(
+    packageId: string,
+    fromVersion: string,
+    targetVersion: string,
+    onProgress?: (progress: { phase: string; percent: number; message: string }) => void
+  ): Promise<{
     exitCode: number;
     outputLogs: string;
     verifiedVersion: string | null;
@@ -213,26 +227,93 @@ export class WingetService {
       throw new Error('Invalid approved package identifier or target version.');
     }
 
+    onProgress?.({ phase: 'verifying', percent: 5, message: 'Verifying installed version...' });
+
     const currentVersion = await this.verifyInstalledVersion(packageId, fromVersion);
     if (!currentVersion || !versionsMatch(currentVersion, fromVersion)) {
       throw new Error('The installed version changed or could not be verified. Scan again before approving an update.');
     }
 
     console.log(`[WingetService] Executing safe update for package: ${packageId}`);
+    onProgress?.({ phase: 'downloading', percent: 15, message: 'Starting package download...' });
 
-    const result = await runProcess('winget', [
-      'upgrade',
-      '--id',
-      packageId,
-      '--exact',
-      '--source',
-      'winget',
-      '--version',
-      targetVersion,
-      '--accept-package-agreements',
-      '--accept-source-agreements',
-      '--disable-interactivity',
-    ], 15 * 60_000);
+    let currentPhase = 'downloading';
+    let currentPercent = 15;
+
+    // Progress timer to smoothly advance download or installation while child runs
+    const progressTimer = setInterval(() => {
+      if (currentPhase === 'downloading') {
+        if (currentPercent < 75) {
+          currentPercent = Math.min(75, currentPercent + 3);
+          onProgress?.({ phase: 'downloading', percent: currentPercent, message: 'Downloading installer package...' });
+        }
+      } else if (currentPhase === 'installing') {
+        if (currentPercent < 92) {
+          currentPercent = Math.min(92, currentPercent + 2);
+          onProgress?.({ phase: 'installing', percent: currentPercent, message: 'Installing application files...' });
+        }
+      }
+    }, 2000);
+
+    const handleStdout = (chunk: string) => {
+      const pctMatch = chunk.match(/(\d{1,3})\s*%/);
+      if (pctMatch && currentPhase === 'downloading') {
+        const val = parseInt(pctMatch[1], 10);
+        if (!isNaN(val) && val >= 0 && val <= 100) {
+          currentPercent = Math.max(currentPercent, Math.min(75, 15 + Math.round(val * 0.6)));
+          onProgress?.({ phase: 'downloading', percent: currentPercent, message: `Downloading package (${val}%)...` });
+          return;
+        }
+      }
+
+      const mbMatch = chunk.match(/([\d.]+)\s*(MB|GB|KB)\s*\/\s*([\d.]+)\s*(MB|GB|KB)/i);
+      if (mbMatch && currentPhase === 'downloading') {
+        onProgress?.({ phase: 'downloading', percent: currentPercent, message: `Downloading package: ${mbMatch[0]}...` });
+        return;
+      }
+
+      if (/Successfully verified installer hash|hash verified/i.test(chunk)) {
+        currentPhase = 'installing';
+        currentPercent = 78;
+        onProgress?.({ phase: 'installing', percent: 78, message: 'Installer verified. Running installation...' });
+        return;
+      }
+
+      if (/Starting package install|installing/i.test(chunk)) {
+        currentPhase = 'installing';
+        currentPercent = Math.max(currentPercent, 82);
+        onProgress?.({ phase: 'installing', percent: currentPercent, message: 'Installing application...' });
+        return;
+      }
+
+      if (/Successfully installed/i.test(chunk)) {
+        currentPhase = 'verifying';
+        currentPercent = 94;
+        onProgress?.({ phase: 'verifying', percent: 94, message: 'Installation complete. Verifying...' });
+        return;
+      }
+    };
+
+    let result;
+    try {
+      result = await runProcess('winget', [
+        'upgrade',
+        '--id',
+        packageId,
+        '--exact',
+        '--source',
+        'winget',
+        '--version',
+        targetVersion,
+        '--accept-package-agreements',
+        '--accept-source-agreements',
+        '--disable-interactivity',
+      ], 15 * 60_000, handleStdout);
+    } finally {
+      clearInterval(progressTimer);
+    }
+
+    onProgress?.({ phase: 'verifying', percent: 96, message: 'Verifying installed version...' });
 
     const logs = `--- EXECUTION LOGS ---\nExit Code: ${result.code}\n\nSTDOUT:\n${result.stdout}\n\nSTDERR:\n${result.stderr}`;
 
@@ -249,6 +330,12 @@ export class WingetService {
     const verifiedVersion = versionMatchesTarget ? targetVersion : verifiedCandidate;
     const verificationPassed = (result.code === 0 && versionMatchesTarget) ||
       (restartRequired && (versionMatchesTarget || result.code === 3010 || result.code === 1641));
+
+    onProgress?.({
+      phase: verificationPassed ? 'completed' : 'failed',
+      percent: 100,
+      message: verificationPassed ? 'Update installed and verified!' : 'Verification failed or version mismatch',
+    });
 
     return {
       exitCode: result.code,

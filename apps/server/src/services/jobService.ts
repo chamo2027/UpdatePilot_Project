@@ -196,6 +196,9 @@ export class JobService {
         where: { id: job.id, deviceId: params.deviceId, state: 'in_progress' },
         data: {
           state,
+          progressPercent: state === 'succeeded' ? 100 : 0,
+          progressPhase: state === 'succeeded' ? 'completed' : 'failed',
+          progressMessage: state === 'succeeded' ? 'Update installed and verified successfully.' : 'Update execution failed.',
           exitCode: params.exitCode,
           outputLogs: params.outputLogs.slice(0, 64_000),
           verifiedVersion: params.verifiedInstalledVersion,
@@ -258,7 +261,13 @@ export class JobService {
       if (updateJob) {
         const claim = await tx.updateJob.updateMany({
           where: { id: updateJob.id, state: 'queued' },
-          data: { state: 'in_progress', startedAt: new Date() },
+          data: {
+            state: 'in_progress',
+            startedAt: new Date(),
+            progressPercent: 5,
+            progressPhase: 'downloading',
+            progressMessage: 'Initializing download...',
+          },
         });
         return claim.count ? { type: 'update', job: updateJob } : null;
       }
@@ -273,6 +282,23 @@ export class JobService {
         data: { state: 'running', startedAt: new Date() },
       });
       return claim.count ? { type: 'scan', job: scanJob } : null;
+    });
+  }
+
+  static async updateJobProgress(params: {
+    deviceId: string;
+    jobId: string;
+    progressPercent: number;
+    progressPhase: string;
+    progressMessage?: string;
+  }) {
+    return prisma.updateJob.updateMany({
+      where: { id: params.jobId, deviceId: params.deviceId, state: 'in_progress' },
+      data: {
+        progressPercent: params.progressPercent,
+        progressPhase: params.progressPhase,
+        progressMessage: params.progressMessage,
+      },
     });
   }
 

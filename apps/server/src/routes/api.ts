@@ -12,6 +12,7 @@ import {
   ReportScanResultSchema,
   ExecuteUpdateSchema,
   UpdateJobResultSchema,
+  UpdateProgressSchema,
 } from '@updatepilot/shared';
 
 export const router = Router();
@@ -323,6 +324,25 @@ router.post('/agent/updates/report', async (req: Request, res: Response) => {
     });
     if (!result) return res.status(404).json({ error: 'Active update not found.' });
     return res.json({ success: true, data: result });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/agent/updates/progress', async (req: Request, res: Response) => {
+  try {
+    const parse = UpdateProgressSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ success: false, error: parse.error.format() });
+    }
+    const result = await JobService.updateJobProgress({
+      deviceId: res.locals.deviceId,
+      jobId: parse.data.jobId,
+      progressPercent: parse.data.progressPercent,
+      progressPhase: parse.data.progressPhase,
+      progressMessage: parse.data.progressMessage,
+    });
+    return res.json({ success: true, count: result.count });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
