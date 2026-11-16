@@ -8,6 +8,27 @@ type ReleaseDetails = Pick<DetectedApp, 'publisher' | 'homepageUrl' | 'changelog
 const packageIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const versionPattern = /^[A-Za-z0-9][A-Za-z0-9._+~-]{0,127}$/;
 
+export function versionsMatch(v1?: string | null, v2?: string | null): boolean {
+  if (!v1 || !v2) return false;
+  if (v1 === v2) return true;
+  const clean1 = v1.replace(/^[<>=~^v\s]+/i, '').trim();
+  const clean2 = v2.replace(/^[<>=~^v\s]+/i, '').trim();
+  if (clean1 === clean2) return true;
+  const parts1 = clean1.split('.');
+  const parts2 = clean2.split('.');
+  const maxLen = Math.max(parts1.length, parts2.length);
+  for (let i = 0; i < maxLen; i++) {
+    const p1 = parseInt(parts1[i] || '0', 10);
+    const p2 = parseInt(parts2[i] || '0', 10);
+    if (isNaN(p1) || isNaN(p2)) {
+      if ((parts1[i] || '') !== (parts2[i] || '')) return false;
+    } else if (p1 !== p2) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function parseHttps(value?: string) {
   if (!value) return null;
   try {
@@ -192,7 +213,8 @@ export class WingetService {
       throw new Error('Invalid approved package identifier or target version.');
     }
 
-    if (await this.verifyInstalledVersion(packageId) !== fromVersion) {
+    const currentVersion = await this.verifyInstalledVersion(packageId, fromVersion);
+    if (!currentVersion || !versionsMatch(currentVersion, fromVersion)) {
       throw new Error('The installed version changed or could not be verified. Scan again before approving an update.');
     }
 
@@ -222,9 +244,11 @@ export class WingetService {
     const restartRequired = rebootCodes.includes(result.code);
 
     // Post-update verification
-    const verifiedVersion = await this.verifyInstalledVersion(packageId);
-    const verificationPassed = (result.code === 0 && verifiedVersion === targetVersion) ||
-      (restartRequired && (verifiedVersion === targetVersion || result.code === 3010 || result.code === 1641));
+    const verifiedCandidate = await this.verifyInstalledVersion(packageId, targetVersion);
+    const versionMatchesTarget = verifiedCandidate !== null && versionsMatch(verifiedCandidate, targetVersion);
+    const verifiedVersion = versionMatchesTarget ? targetVersion : verifiedCandidate;
+    const verificationPassed = (result.code === 0 && versionMatchesTarget) ||
+      (restartRequired && (versionMatchesTarget || result.code === 3010 || result.code === 1641));
 
     return {
       exitCode: result.code,
@@ -236,11 +260,11 @@ export class WingetService {
   }
 
   /**
-   * Verifies the installed version of a package after an upgrade operation.
+   * Verifies the installed version of a package after an upgrade operation or before execution.
    */
-  static async verifyInstalledVersion(packageId: string): Promise<string | null> {
+  static async verifyInstalledVersion(packageId: string, expectedVersion?: string): Promise<string | null> {
     try {
-      const { stdout, code } = await runProcess('winget', [
+      let { stdout, code } = await runProcess('winget', [
         'list',
         '--id',
         packageId,
@@ -249,23 +273,74 @@ export class WingetService {
         'winget',
         '--accept-source-agreements',
       ]);
+
+      if (code !== 0 || !stdout.includes('---')) {
+        const fallback = await runProcess('winget', [
+          'list',
+          '--id',
+          packageId,
+          '--exact',
+          '--accept-source-agreements',
+        ]);
+        if (fallback.code === 0 && fallback.stdout.includes('---')) {
+          stdout = fallback.stdout;
+          code = fallback.code;
+        }
+      }
+
       if (code !== 0) return null;
 
       const lines = stdout.split(/\r?\n/);
       const sepIdx = lines.findIndex((l) => l.startsWith('---'));
-      if (sepIdx !== -1 && lines[sepIdx + 1]) {
-        const line = lines[sepIdx + 1];
-        const header = lines[sepIdx - 1];
-        const idIdx = header.indexOf('Id');
-        const verIdx = header.indexOf('Version');
-        const availIdx = header.indexOf('Available');
-        const sourceIdx = header.indexOf('Source');
-        if (idIdx >= 0 && verIdx > idIdx && line.slice(idIdx, verIdx).trim().toLowerCase() === packageId.toLowerCase()) {
-          const end = availIdx > verIdx ? availIdx : sourceIdx > verIdx ? sourceIdx : undefined;
-          const version = line.substring(verIdx, end).trim();
-          return version || null;
+      if (sepIdx === -1) return null;
+
+      const header = lines[sepIdx - 1] || '';
+      let idIdx = header.indexOf('Id');
+      let verIdx = header.indexOf('Version');
+      let availIdx = header.indexOf('Available');
+      let sourceIdx = header.indexOf('Source');
+
+      // Multi-locale fallback: derive column boundaries from dash segments
+      if (idIdx < 0 || verIdx <= idIdx) {
+        const sepLine = lines[sepIdx];
+        const segments: { start: number; end: number }[] = [];
+        const regex = /-+|\S+/g;
+        let match;
+        while ((match = regex.exec(sepLine)) !== null) {
+          segments.push({ start: match.index, end: match.index + match[0].length });
+        }
+        if (segments.length >= 3) {
+          idIdx = segments[1].start;
+          verIdx = segments[2].start;
+          availIdx = segments.length >= 4 ? segments[3].start : -1;
+          sourceIdx = segments.length >= 5 ? segments[4].start : -1;
         }
       }
+
+      if (idIdx < 0 || verIdx <= idIdx) return null;
+
+      const versionsFound: string[] = [];
+      for (let i = sepIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const lineId = line.slice(idIdx, verIdx).trim();
+        if (lineId.toLowerCase() === packageId.toLowerCase()) {
+          const end = availIdx > verIdx ? availIdx : sourceIdx > verIdx ? sourceIdx : undefined;
+          const version = line.substring(verIdx, end).trim();
+          if (version) {
+            versionsFound.push(version);
+          }
+        }
+      }
+
+      if (versionsFound.length === 0) return null;
+
+      if (expectedVersion) {
+        const matched = versionsFound.find(v => versionsMatch(v, expectedVersion));
+        if (matched) return expectedVersion;
+      }
+
+      return versionsFound[0];
     } catch {
       // verification error
     }

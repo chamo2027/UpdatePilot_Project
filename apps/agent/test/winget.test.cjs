@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { parseReleaseDetails, WingetService } = require('../dist/winget');
+const { parseReleaseDetails, WingetService, versionsMatch } = require('../dist/winget');
 
 test('WinGet metadata keeps HTTPS publisher and release links', () => {
   const result = parseReleaseDetails([
@@ -33,4 +33,13 @@ test('handles non-English or localized column structures gracefully', () => {
   // Test input validation with valid patterns
   assert.equal(typeof WingetService.verifyInstalledVersion, 'function');
   assert.equal(typeof WingetService.listInstalledApplications, 'function');
+});
+
+test('versionsMatch compares versions with prefix, spacing, or trailing patch differences', () => {
+  assert.equal(versionsMatch('3.9.16', '3.9.16'), true);
+  assert.equal(versionsMatch('v3.9.16', '3.9.16'), true);
+  assert.equal(versionsMatch('< 3.14.7', '3.14.7'), true);
+  assert.equal(versionsMatch('3.29.15', '3.29.15.0'), true);
+  assert.equal(versionsMatch('2.4.31', '3.9.16'), false);
+  assert.equal(versionsMatch(null, '1.0'), false);
 });
