@@ -10,6 +10,13 @@ jobs:
   test-and-build:
     name: Build & Automated Tests
     runs-on: windows-latest
+    env:
+      DATABASE_URL: "file:./dev.db"
+      DASHBOARD_PASSWORD: "ci-dashboard-password-12345"
+      SESSION_SECRET: "ci-session-secret-at-least-32-chars-long-1234"
+      AGENT_PAIRING_CODE: "ci-pairing-code-at-least-24-chars-long-1234"
+      ENABLE_OSV_ADVISORIES: "false"
+      CI: "true"
 
     steps:
       - name: Checkout repository
@@ -38,6 +45,9 @@ jobs:
 
       - name: Build Server
         run: npm --workspace=@updatepilot/server run build
+
+      - name: Build Agent
+        run: npm --workspace=@updatepilot/agent run build
 
       - name: Package Windows Agent
         run: npm --workspace=@updatepilot/agent run package:windows

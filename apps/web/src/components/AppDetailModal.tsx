@@ -85,72 +85,71 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </div>
 
               {/* Specs Grid */}
-              <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-surface-muted border border-surface-border">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl bg-surface-muted border border-surface-border">
+                <div className="min-w-0">
                   <span className="text-neutral-400 block mb-0.5">Installed Version</span>
-                  <span className="font-mono font-semibold text-foreground">{details.installedVersion}</span>
+                  <span className="font-mono font-semibold text-foreground truncate block">{details.installedVersion}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <span className="text-neutral-400 block mb-0.5">Available Version</span>
-                  <span className="font-mono font-semibold text-amber-500">
+                  <span className="font-mono font-semibold text-amber-500 truncate block">
                     {details.availableVersion || 'Up to date'}
                   </span>
                 </div>
-                <div>
+                <div className="min-w-0 sm:col-span-2">
                   <span className="text-neutral-400 block mb-0.5">Package Identifier</span>
-                  <span className="font-mono text-neutral-300">{details.packageId || 'Unmatched'}</span>
+                  <span className="font-mono text-neutral-300 break-all text-[11px] block">{details.packageId || 'Unmatched'}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <span className="text-neutral-400 block mb-0.5">Source Provider</span>
-                  <span className="capitalize text-neutral-300">{details.source}</span>
+                  <span className="capitalize text-neutral-300 block">{details.source}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <span className="text-neutral-400 block mb-0.5">Target Host</span>
-                  <span className="text-neutral-300">{details.device?.name}</span>
+                  <span className="text-neutral-300 truncate block">{details.device?.name}</span>
                 </div>
-                <div>
+                <div className="min-w-0 sm:col-span-2">
                   <span className="text-neutral-400 block mb-0.5">Last Scanned</span>
-                  <span className="text-neutral-300">
+                  <span className="text-neutral-300 block">
                     {new Date(details.lastScannedAt).toLocaleDateString()}
                   </span>
                 </div>
               </div>
 
-              {/* Release Metadata & External Links */}
-              <div className="space-y-2">
-                <span className="font-bold text-foreground block">Release information</span>
-                {details.releaseDate && <p>Release date {details.releaseDate}</p>}
-                {!details.homepageUrl && !details.changelogUrl && !details.releaseDate && (
-                  <p className="text-neutral-400">Release details are unavailable for this version.</p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {details.homepageUrl && (
-                    <a
-                      href={details.homepageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-300 border border-surface-border transition-colors"
-                    >
-                      <Globe className="w-3.5 h-3.5 text-brand-500" />
-                      <span>Publisher website</span>
-                      <ExternalLink className="w-3 h-3 text-neutral-500" />
-                    </a>
-                  )}
+              {/* Release Metadata & External Links (only shown if data exists) */}
+              {(details.releaseDate || details.homepageUrl || details.changelogUrl) && (
+                <div className="space-y-2">
+                  <span className="font-bold text-foreground block">Release information</span>
+                  {details.releaseDate && <p className="text-neutral-300">Release date: {details.releaseDate}</p>}
+                  <div className="flex flex-wrap gap-2">
+                    {details.homepageUrl && (
+                      <a
+                        href={details.homepageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-300 border border-surface-border transition-colors"
+                      >
+                        <Globe className="w-3.5 h-3.5 text-brand-500" />
+                        <span>Publisher website</span>
+                        <ExternalLink className="w-3 h-3 text-neutral-500" />
+                      </a>
+                    )}
 
-                  {details.changelogUrl && (
-                    <a
-                      href={details.changelogUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-300 border border-surface-border transition-colors"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Release notes</span>
-                      <ExternalLink className="w-3 h-3 text-neutral-500" />
-                    </a>
-                  )}
+                    {details.changelogUrl && (
+                      <a
+                        href={details.changelogUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-300 border border-surface-border transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Release notes</span>
+                        <ExternalLink className="w-3 h-3 text-neutral-500" />
+                      </a>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Linked Security Advisories */}
               {details.securityFindings && details.securityFindings.length > 0 && (

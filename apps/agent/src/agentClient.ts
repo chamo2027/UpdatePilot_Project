@@ -37,35 +37,43 @@ export class AgentClient {
     }
   }
 
-  async pair(): Promise<boolean> {
+  async pair(retries = 6, delayMs = 2000): Promise<boolean> {
     const sysInfo = getSystemInfo();
     console.log(`[Agent] Pairing with server at ${this.serverUrl}...`);
 
-    try {
-      const res = await fetch(`${this.serverUrl}/devices/pair`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceName: sysInfo.deviceName,
-          osVersion: sysInfo.osVersion,
-          agentVersion: sysInfo.agentVersion,
-          pairingToken: this.token || undefined,
-          pairingCode: process.env.AGENT_PAIRING_CODE || undefined,
-        }),
-      });
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(`${this.serverUrl}/devices/pair`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceName: sysInfo.deviceName,
+            osVersion: sysInfo.osVersion,
+            agentVersion: sysInfo.agentVersion,
+            pairingToken: this.token || undefined,
+            pairingCode: process.env.AGENT_PAIRING_CODE || undefined,
+          }),
+        });
 
-      const json: any = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Pairing rejected by server');
+        const json: any = await res.json();
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || 'Pairing rejected by server');
+        }
+
+        this.saveState(json.data.deviceId, json.data.token);
+        console.log(`[Agent] Successfully paired as device: ${json.data.name} (ID: ${json.data.deviceId})`);
+        return true;
+      } catch (err: any) {
+        if (attempt < retries && (err.code === 'ECONNREFUSED' || err.message?.includes('fetch failed'))) {
+          console.log(`[Agent] Server not ready yet. Retrying in ${delayMs / 1000}s... (attempt ${attempt}/${retries})`);
+          await new Promise((r) => setTimeout(r, delayMs));
+        } else {
+          console.error(`[Agent] Pairing failed: ${err.message}`);
+          return false;
+        }
       }
-
-      this.saveState(json.data.deviceId, json.data.token);
-      console.log(`[Agent] Successfully paired as device: ${json.data.name} (ID: ${json.data.deviceId})`);
-      return true;
-    } catch (err: any) {
-      console.error(`[Agent] Pairing failed: ${err.message}`);
-      return false;
     }
+    return false;
   }
 
   async heartbeat() {

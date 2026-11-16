@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "scan-once": "tsx src/index.ts --once",
-    "package:windows": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/windows/updatepilot-agent.cjs && powershell.exe -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File package-windows.ps1",
+    "package:windows": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/windows/updatepilot-agent.cjs && powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File package-windows.ps1",
     "build": "tsc",
     "test": "npm run build && node --test test/winget.test.cjs",
     "start": "node dist/index.js"

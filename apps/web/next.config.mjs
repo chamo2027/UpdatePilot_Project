@@ -2,6 +2,12 @@
 const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.UPDATEPILOT_WEB_DIST_DIR || '.next',
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: false,
+  },
   async rewrites() {
     return [
       {

@@ -5,8 +5,6 @@ import {
   ArrowUpCircle,
   ShieldCheck,
   AlertTriangle,
-  ExternalLink,
-  FileText,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -100,22 +98,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   </div>
                 </div>
 
-                {/* Actions & Links */}
+                {/* Actions */}
                 <div className="flex items-center gap-3 shrink-0">
-                  {app.changelogUrl && (
-                    <a
-                      href={app.changelogUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-lg bg-surface-muted hover:bg-surface-border text-neutral-400 hover:text-foreground text-xs flex items-center gap-1.5 transition-colors"
-                      title="View Release Manifest / Changelog"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Changelog</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-
                   <button
                     id={`btn-update-${app.id}`}
                     onClick={() => onOpenUpdateModal(app)}

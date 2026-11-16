@@ -8,12 +8,14 @@ Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Launching Server on port 4000..." -ForegroundColor Green
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host '=== UpdatePilot Server ===' -ForegroundColor Green; npm run dev:server"
 
-# Wait a brief moment for the API server to bind to port 4000
-Start-Sleep -Seconds 3
+# Wait for the API server to compile and bind to port 4000
+Start-Sleep -Seconds 5
 
 # 2. Start Web Dashboard
 Write-Host "Launching Web Dashboard on port 3000..." -ForegroundColor Blue
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host '=== UpdatePilot Web Dashboard ===' -ForegroundColor Blue; npm run dev:web"
+
+Start-Sleep -Seconds 2
 
 # 3. Start Agent
 Write-Host "Launching Windows Host Agent..." -ForegroundColor Yellow
