@@ -181,10 +181,12 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
               <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
               <div>
                 <p role="status" className="font-bold text-foreground text-sm">
-                  {jobState === 'queued' ? 'Waiting for the Windows agent' : 'Running WinGet update'}
+                  {jobState === 'queued' ? 'Queued — Waiting for agent' : 'Running WinGet update'}
                 </p>
                 <p className="text-neutral-400 text-xs mt-1">
-                  {jobState === 'queued' ? 'The update has not started.' : 'The agent will check the installed version when WinGet finishes.'}
+                  {jobState === 'queued'
+                    ? 'Update is queued. The agent executes one package at a time to prevent Windows installer collisions.'
+                    : 'The agent will check the installed version when WinGet finishes.'}
                 </p>
                 {error && <p role="alert">{error}</p>}
               </div>
