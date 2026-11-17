@@ -11,10 +11,10 @@ const dashboardOrigin = () => {
   const raw = (process.env.DASHBOARD_ORIGIN || 'http://localhost:3000').trim().replace(/\/$/, '');
   return raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
 };
-const cookieOptions = () => ({
+const cookieOptions = (origin?: string) => ({
   httpOnly: true,
   sameSite: 'lax' as const,
-  secure: dashboardOrigin().startsWith('https://'),
+  secure: origin?.startsWith('https://') || dashboardOrigin().startsWith('https://'),
   path: '/api/v1',
 });
 const sign = (expires: string, key: string) => createHmac('sha256', key).update(expires).digest('hex');
@@ -24,6 +24,9 @@ const isAllowedOrigin = (origin?: string) => {
   const clean = origin.trim().replace(/\/$/, '');
   const expected = dashboardOrigin();
   if (clean === expected) return true;
+  if (clean.endsWith('.trycloudflare.com') || clean.endsWith('.loca.lt')) {
+    return true;
+  }
   if (expected.endsWith('.vercel.app') && clean.endsWith('.vercel.app')) {
     return true;
   }
@@ -53,7 +56,7 @@ export function protectDashboard(router: Router) {
     }
     failures = 0;
     const expires = String(Date.now() + sessionDuration);
-    res.cookie(cookieName, expires + '.' + sign(expires, key), { ...cookieOptions(), maxAge: sessionDuration });
+    res.cookie(cookieName, expires + '.' + sign(expires, key), { ...cookieOptions(origin), maxAge: sessionDuration });
     return res.json({ success: true });
   });
 
@@ -74,8 +77,9 @@ export function protectDashboard(router: Router) {
     return next();
   });
   router.get('/session', (_req, res) => res.json({ success: true }));
-  router.delete('/session', (_req, res) => {
-    res.clearCookie(cookieName, cookieOptions());
+  router.delete('/session', (req, res) => {
+    const origin = req.get('origin')?.replace(/\/$/, '');
+    res.clearCookie(cookieName, cookieOptions(origin));
     return res.json({ success: true });
   });
 }
