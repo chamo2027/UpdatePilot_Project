@@ -37,7 +37,7 @@ export class AgentClient {
     }
   }
 
-  async pair(retries = 6, delayMs = 2000): Promise<boolean> {
+  async pair(retries = 20, delayMs = 3000): Promise<boolean> {
     const sysInfo = getSystemInfo();
     console.log(`[Agent] Pairing with server at ${this.serverUrl}...`);
 
@@ -55,6 +55,10 @@ export class AgentClient {
           }),
         });
 
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          throw new Error(`Cloud server waking up (HTTP ${res.status})`);
+        }
+
         const json: any = await res.json();
         if (!res.ok || !json.success) {
           throw new Error(json.error || 'Pairing rejected by server');
@@ -64,8 +68,15 @@ export class AgentClient {
         console.log(`[Agent] Successfully paired as device: ${json.data.name} (ID: ${json.data.deviceId})`);
         return true;
       } catch (err: any) {
-        if (attempt < retries && (err.code === 'ECONNREFUSED' || err.message?.includes('fetch failed'))) {
-          console.log(`[Agent] Server not ready yet. Retrying in ${delayMs / 1000}s... (attempt ${attempt}/${retries})`);
+        const isTransient = attempt < retries && (
+          err.code === 'ECONNREFUSED' ||
+          err.message?.includes('fetch failed') ||
+          err.message?.includes('waking up') ||
+          err.message?.includes('network timeout')
+        );
+
+        if (isTransient) {
+          console.log(`[Agent] Server not ready yet (${err.message}). Retrying in ${delayMs / 1000}s... (attempt ${attempt}/${retries})`);
           await new Promise((r) => setTimeout(r, delayMs));
         } else {
           console.error(`[Agent] Pairing failed: ${err.message}`);

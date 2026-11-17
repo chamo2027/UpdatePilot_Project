@@ -19,13 +19,24 @@ const cookieOptions = () => ({
 });
 const sign = (expires: string, key: string) => createHmac('sha256', key).update(expires).digest('hex');
 
+const isAllowedOrigin = (origin?: string) => {
+  if (!origin) return true;
+  const clean = origin.trim().replace(/\/$/, '');
+  const expected = dashboardOrigin();
+  if (clean === expected) return true;
+  if (expected.endsWith('.vercel.app') && clean.endsWith('.vercel.app')) {
+    return true;
+  }
+  return false;
+};
+
 export function protectDashboard(router: Router) {
   let failures = 0;
   let retryAfter = 0;
 
   router.post('/session', (req, res) => {
     const origin = req.get('origin')?.replace(/\/$/, '');
-    if (origin && origin !== dashboardOrigin()) return res.sendStatus(403);
+    if (origin && !isAllowedOrigin(origin)) return res.sendStatus(403);
     const password = process.env.DASHBOARD_PASSWORD;
     const key = process.env.SESSION_SECRET;
     if (!password || password.length < 12 || !key || key.length < 32) {
@@ -57,7 +68,7 @@ export function protectDashboard(router: Router) {
       return res.status(401).json({ error: 'Sign in to UpdatePilot.' });
     }
     const origin = req.get('origin')?.replace(/\/$/, '');
-    if (!['GET', 'HEAD'].includes(req.method) && origin && origin !== dashboardOrigin()) {
+    if (!['GET', 'HEAD'].includes(req.method) && origin && !isAllowedOrigin(origin)) {
       return res.status(403).json({ error: 'Request must come from the dashboard.' });
     }
     return next();
