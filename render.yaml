@@ -1,0 +1,58 @@
+services:
+  # 1. Express API Backend Server
+  - type: web
+    name: updatepilot-server
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm --workspace=@updatepilot/shared run build && npm --workspace=@updatepilot/server run db:generate && npm --workspace=@updatepilot/server run build
+    startCommand: node apps/server/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: updatepilot-db
+          property: connectionString
+      - key: DASHBOARD_PASSWORD
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: AGENT_PAIRING_CODE
+        generateValue: true
+      - key: ENABLE_OSV_ADVISORIES
+        value: "true"
+      - key: DASHBOARD_ORIGIN
+        fromService:
+          type: web
+          name: updatepilot-web
+          property: host
+
+  # 2. Next.js Web Dashboard
+  - type: web
+    name: updatepilot-web
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm --workspace=@updatepilot/shared run build && npm --workspace=@updatepilot/web run build
+    startCommand: npm --workspace=@updatepilot/web run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_INTERNAL_URL
+        fromService:
+          type: web
+          name: updatepilot-server
+          property: host
+
+databases:
+  # 3. PostgreSQL Database
+  - name: updatepilot-db
+    plan: free
+    region: oregon
+    databaseName: updatepilot
+    user: updatepilot

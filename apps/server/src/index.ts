@@ -43,10 +43,11 @@ async function startServer() {
     setInterval(() => void JobService.expireStaleJobs().catch(console.error), 60_000).unref();
     setInterval(() => void JobService.pruneDiagnostics().catch(console.error), 3_600_000).unref();
 
-    const server = app.listen(PORT, '127.0.0.1', () => {
+    const HOST = process.env.HOST || '0.0.0.0';
+    const server = app.listen(PORT, HOST, () => {
       const address = server.address();
       if (address && typeof address !== 'string') {
-        console.log(`[UpdatePilot Server] API listening on http://localhost:${address.port}`);
+        console.log(`[UpdatePilot Server] API listening on http://${HOST}:${address.port} (mapped: http://localhost:${address.port})`);
       }
     });
   } catch (error) {

@@ -7,10 +7,13 @@ export const sameSecret = (left: string, right: string) =>
 
 const cookieName = 'updatepilot_session';
 const sessionDuration = 8 * 60 * 60 * 1000;
-const dashboardOrigin = () => process.env.DASHBOARD_ORIGIN || 'http://localhost:3000';
+const dashboardOrigin = () => {
+  const raw = (process.env.DASHBOARD_ORIGIN || 'http://localhost:3000').trim().replace(/\/$/, '');
+  return raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+};
 const cookieOptions = () => ({
   httpOnly: true,
-  sameSite: 'strict' as const,
+  sameSite: 'lax' as const,
   secure: dashboardOrigin().startsWith('https://'),
   path: '/api/v1',
 });
@@ -21,7 +24,8 @@ export function protectDashboard(router: Router) {
   let retryAfter = 0;
 
   router.post('/session', (req, res) => {
-    if (req.get('origin') !== dashboardOrigin()) return res.sendStatus(403);
+    const origin = req.get('origin')?.replace(/\/$/, '');
+    if (origin && origin !== dashboardOrigin()) return res.sendStatus(403);
     const password = process.env.DASHBOARD_PASSWORD;
     const key = process.env.SESSION_SECRET;
     if (!password || password.length < 12 || !key || key.length < 32) {
@@ -52,7 +56,8 @@ export function protectDashboard(router: Router) {
         !signature || !sameSecret(signature, sign(expires, key))) {
       return res.status(401).json({ error: 'Sign in to UpdatePilot.' });
     }
-    if (!['GET', 'HEAD'].includes(req.method) && req.get('origin') !== dashboardOrigin()) {
+    const origin = req.get('origin')?.replace(/\/$/, '');
+    if (!['GET', 'HEAD'].includes(req.method) && origin && origin !== dashboardOrigin()) {
       return res.status(403).json({ error: 'Request must come from the dashboard.' });
     }
     return next();
