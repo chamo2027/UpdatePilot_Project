@@ -36,9 +36,9 @@ npm.cmd --workspace=@updatepilot/server run db:generate
 npm.cmd --workspace=@updatepilot/server run db:migrate
 ```
 
-If you already used the old prototype, back up the SQLite database and set `DATABASE_URL="file:./pilot.db"` in `apps/server/.env.local` before running the migrations. This creates a fresh demo database and preserves the old one. Existing agent credentials from the prototype must be re-paired.
+For production, set `DATABASE_URL` to the pooled PostgreSQL connection string from Neon. The Prisma schema and migrations are configured for PostgreSQL. Existing local SQLite databases are not compatible and should be retained only as backups.
 
-For labelled sample data, set `DATABASE_URL="file:./demo.db"`, run the migration, then run `npm.cmd --workspace=@updatepilot/server run seed`. Keep this database separate from the real Windows acceptance test.
+For a labelled demo database, use a separate Neon database or branch, run the migration, then run the seed command. Keep it separate from the real Windows acceptance test.
 
 Run these commands in three separate terminals, in order:
 
