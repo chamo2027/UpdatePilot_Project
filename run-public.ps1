@@ -35,7 +35,7 @@ if (-not (Test-Path $cloudflared)) {
 }
 
 if ($cloudflared -and (Test-Path $cloudflared)) {
-    Start-Process powershell -WorkingDirectory $rootDir -ArgumentList "-NoExit", "-Command", "Write-Host '=== UpdatePilot Cloudflare Public Tunnel ===' -ForegroundColor Magenta; Write-Host 'Connecting to Cloudflare edge network... Watch below for your public https://...trycloudflare.com link:' -ForegroundColor Yellow; & '$cloudflared' tunnel --url http://localhost:3000"
+    Start-Process powershell -WorkingDirectory $rootDir -ArgumentList "-NoExit", "-Command", "Write-Host '=== UpdatePilot Cloudflare Public Tunnel ===' -ForegroundColor Magenta; do { Write-Host 'Connecting to Cloudflare edge network... Requesting your public https://...trycloudflare.com link...' -ForegroundColor Yellow; & '$cloudflared' tunnel --url http://localhost:3000; Write-Host 'Cloudflare connection timed out or closed. Retrying in 3 seconds...' -ForegroundColor Red; Start-Sleep -Seconds 3 } while (`$true)"
 } else {
     Write-Host "Could not find cloudflared.exe. Please install via: winget install --id Cloudflare.cloudflared" -ForegroundColor Red
 }
