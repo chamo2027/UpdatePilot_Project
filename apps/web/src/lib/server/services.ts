@@ -202,24 +202,24 @@ export class DeviceService {
     const metadata = { osVersion: data.osVersion, agentVersion: data.agentVersion };
     const device = existing
       ? await prisma.device.update({
-          where: { id: existing.id },
-          data: {
-            ...metadata,
-            lastSeen: new Date(),
-            status: 'online',
-            token: hashSecret(token),
-            ...(ownerId ? { ownerId } : {}),
-          },
-        })
+        where: { id: existing.id },
+        data: {
+          ...metadata,
+          lastSeen: new Date(),
+          status: 'online',
+          token: hashSecret(token),
+          ...(ownerId ? { ownerId } : {}),
+        },
+      })
       : await prisma.device.create({
-          data: {
-            ...metadata,
-            name: data.deviceName,
-            ownerId,
-            status: 'online',
-            token: hashSecret(token),
-          },
-        });
+        data: {
+          ...metadata,
+          name: data.deviceName,
+          ownerId,
+          status: 'online',
+          token: hashSecret(token),
+        },
+      });
 
     if (!existing) {
       await AuditService.record({
@@ -680,8 +680,8 @@ export class JobService {
     }
 
     if (app.source !== 'winget' || app.updateStatus !== 'update_available' ||
-        !app.packageId || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(app.packageId) ||
-        app.availableVersion !== params.targetVersion) {
+      !app.packageId || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(app.packageId) ||
+      app.availableVersion !== params.targetVersion) {
       throw new Error('Application missing package identity or available version');
     }
 

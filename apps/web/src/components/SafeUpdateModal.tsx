@@ -13,6 +13,8 @@ import {
   Cpu,
   Clock,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useModalFocus } from '../lib/useModalFocus';
@@ -42,6 +44,7 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
     message?: string;
   }>({ percent: 0, phase: 'queued', message: '' });
   const [cancelling, setCancelling] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const dialogRef = useModalFocus(onClose, !isExecuting);
 
   // Load preview details
@@ -159,35 +162,60 @@ export const SafeUpdateModal: React.FC<SafeUpdateModalProps> = ({
                 }`}
               >
                 {jobResult.state === 'succeeded' ? (
-                  <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-400" />
                 ) : (
                   <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                 )}
                 <div>
                   <p className="font-bold text-sm">
                     {jobResult.state === 'succeeded'
-                      ? 'Update Installed and Verified!'
+                      ? 'Update Installed Successfully!'
                       : jobResult.state === 'restart_required'
-                      ? 'System Restart Required'
+                      ? 'System Restart Required to Finish'
                       : jobResult.state === 'cancelled'
-                      ? 'Update cancelled'
-                      : 'Update could not be verified'}
+                      ? 'Update Cancelled'
+                      : 'Update Could Not Be Completed'}
                   </p>
                   <p className="text-neutral-300 text-xs mt-1">
-                    {jobResult.verificationResult || `Exit code: ${jobResult.exitCode}`}
+                    {jobResult.state === 'succeeded'
+                      ? `${app.displayName} is now updated and ready to use.`
+                      : jobResult.verificationResult || `Exit code: ${jobResult.exitCode}`}
                   </p>
                 </div>
               </div>
 
+              {/* Friendly advice if app restart is recommended */}
+              {jobResult.outputLogs?.toLowerCase().includes('restart the application') && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2.5">
+                  <span className="text-base shrink-0 leading-none">💡</span>
+                  <span>
+                    <strong>Quick Tip:</strong> If <strong>{app.displayName}</strong> is currently open, please close and reopen the application to finish applying the upgrade.
+                  </span>
+                </div>
+              )}
+
+              {/* Collapsible Technical Logs for Developers */}
               {jobResult.outputLogs && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-neutral-400 mb-1.5 font-semibold">
-                    <Terminal className="w-3.5 h-3.5" />
-                    <span>Process Output Logs</span>
-                  </div>
-                  <pre className="p-3 rounded-lg bg-surface-muted text-neutral-300 text-[11px] font-mono overflow-x-auto max-h-48 border border-surface-border whitespace-pre-wrap">
-                    {jobResult.outputLogs}
-                  </pre>
+                <div className="border border-surface-border rounded-xl overflow-hidden bg-surface-muted/40">
+                  <button
+                    type="button"
+                    onClick={() => setShowLogs(!showLogs)}
+                    className="w-full px-3.5 py-2.5 flex items-center justify-between text-neutral-400 hover:text-foreground text-xs font-medium transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>Technical Output & Logs</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[11px] text-neutral-400">
+                      <span>{showLogs ? 'Hide details' : 'Show details'}</span>
+                      {showLogs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </div>
+                  </button>
+                  {showLogs && (
+                    <pre className="p-3 bg-neutral-950 text-neutral-300 text-[11px] font-mono overflow-x-auto max-h-48 border-t border-surface-border whitespace-pre-wrap">
+                      {jobResult.outputLogs}
+                    </pre>
+                  )}
                 </div>
               )}
             </div>
