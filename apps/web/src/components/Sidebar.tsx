@@ -91,13 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Safety Policy Callout in Sidebar */}
-      <div className="mt-4 hidden rounded-lg border border-surface-border bg-surface-muted p-3 text-xs text-neutral-400 md:block">
-        <p className="font-semibold text-foreground mb-1">Local-First Safety</p>
-        <p className="text-[11px] leading-relaxed">
-          Updates require explicit user approval. All operations execute strictly via allowlisted Windows Package Manager calls.
-        </p>
-      </div>
+
     </aside>
   );
 };
