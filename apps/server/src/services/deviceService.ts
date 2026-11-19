@@ -15,25 +15,23 @@ export class DeviceService {
     let existing = data.pairingToken ? await this.authenticate(data.pairingToken) : null;
     let ownerId: string | null = null;
 
-    if (!existing) {
-      // 1. Match user-specific pairing code (from User.pairingCode)
-      if (data.pairingCode) {
-        const matchedUser = await AuthService.getUserByPairingCode(data.pairingCode);
-        if (matchedUser) {
-          ownerId = matchedUser.id;
-        }
+    // 1. Match user-specific pairing code (from User.pairingCode)
+    if (data.pairingCode) {
+      const matchedUser = await AuthService.getUserByPairingCode(data.pairingCode);
+      if (matchedUser) {
+        ownerId = matchedUser.id;
       }
+    }
 
-      // 2. Global pairing code fallback
-      const globalCode = process.env.AGENT_PAIRING_CODE;
-      if (!ownerId && globalCode && globalCode.length >= 24 && data.pairingCode && sameSecret(data.pairingCode, globalCode)) {
-        const adminUser = await prisma.user.findFirst({ where: { role: 'admin' } });
-        ownerId = adminUser ? adminUser.id : null;
-      }
+    // 2. Global pairing code fallback
+    const globalCode = process.env.AGENT_PAIRING_CODE;
+    if (!ownerId && globalCode && globalCode.length >= 24 && data.pairingCode && sameSecret(data.pairingCode, globalCode)) {
+      const adminUser = await prisma.user.findFirst({ where: { role: 'admin' } });
+      ownerId = adminUser ? adminUser.id : null;
+    }
 
-      if (!ownerId) {
-        throw new Error('Invalid pairing credentials.');
-      }
+    if (!existing && !ownerId) {
+      throw new Error('Invalid pairing credentials.');
     }
 
     if (!existing && data.deviceName) {

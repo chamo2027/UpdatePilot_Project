@@ -9,7 +9,7 @@
     "test": "npm run build && node --test test/advisories.test.cjs test/security.test.cjs test/auth.test.cjs",
     "test:e2e": "npm run build && node --test test/workflow.test.cjs",
     "start": "node dist/index.js",
-    "db:push": "prisma db push",
+    "db:push": "prisma db push --accept-data-loss",
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
