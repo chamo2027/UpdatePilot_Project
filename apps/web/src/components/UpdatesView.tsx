@@ -1,11 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ArrowUpCircle,
   ShieldCheck,
   AlertTriangle,
   CheckCircle2,
+  X,
 } from 'lucide-react';
 
 interface UpdatesViewProps {
@@ -19,6 +20,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   onOpenUpdateModal,
   onRefresh,
 }) => {
+  const [dismissedNotice, setDismissedNotice] = useState(false);
+
   return (
     <div className="space-y-6">
       {/* Title */}
@@ -38,17 +41,29 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
       </div>
 
       {/* Safety Notice Banner */}
-      <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3 text-xs">
-        <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="font-semibold text-amber-500">Safe Update Guarantee</p>
-          <p className="text-neutral-300 mt-0.5 leading-relaxed">
-            UpdatePilot never performs silent or automated bulk updates. Each update preview validates
-            the package identifier against the official Windows Package Manager repository and requires
-            explicit confirmation before executing.
-          </p>
+      {!dismissedNotice && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start justify-between gap-3 text-xs animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-500">Safe Update Guarantee</p>
+              <p className="text-neutral-300 mt-0.5 leading-relaxed">
+                UpdatePilot never performs silent or automated bulk updates. Each update preview validates
+                the package identifier against the official Windows Package Manager repository and requires
+                explicit confirmation before executing.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setDismissedNotice(true)}
+            className="p-1 rounded-lg text-amber-500/70 hover:text-amber-500 hover:bg-amber-500/20 transition-colors shrink-0"
+            title="Dismiss notice"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      </div>
+      )}
 
       {/* Updates Cards List */}
       <div className="space-y-3">
