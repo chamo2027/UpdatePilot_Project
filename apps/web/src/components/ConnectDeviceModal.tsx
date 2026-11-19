@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Copy, Check, Terminal, Laptop, ShieldCheck } from 'lucide-react';
+import { X, Copy, Check, Terminal, Laptop, ShieldCheck, Zap, RefreshCw } from 'lucide-react';
 
 interface ConnectDeviceModalProps {
   user: any;
@@ -9,16 +9,24 @@ interface ConnectDeviceModalProps {
 }
 
 export const ConnectDeviceModal: React.FC<ConnectDeviceModalProps> = ({ user, onClose }) => {
-  const [copied, setCopied] = useState(false);
+  const [copiedQuick, setCopiedQuick] = useState(false);
+  const [copiedContinuous, setCopiedContinuous] = useState(false);
+  const [activeTab, setActiveTab] = useState<'quick' | 'continuous'>('quick');
   const pairingCode = user?.pairingCode || 'UP-DEVICE-KEY';
 
   const hostOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  const installCmd = `$env:SERVER_URL='${hostOrigin}/api/v1'; $env:AGENT_PAIRING_CODE='${pairingCode}'; npm run dev:agent`;
+  const quickCmd = `irm "${hostOrigin}/api/v1/install-agent.ps1?code=${pairingCode}" | iex`;
+  const continuousCmd = `$env:SERVER_URL='${hostOrigin}/api/v1'; $env:AGENT_PAIRING_CODE='${pairingCode}'; npm run dev:agent`;
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, isQuick: boolean) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    if (isQuick) {
+      setCopiedQuick(true);
+      setTimeout(() => setCopiedQuick(false), 2500);
+    } else {
+      setCopiedContinuous(true);
+      setTimeout(() => setCopiedContinuous(false), 2500);
+    }
   };
 
   return (
@@ -32,7 +40,7 @@ export const ConnectDeviceModal: React.FC<ConnectDeviceModalProps> = ({ user, on
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">Connect a Windows Computer</h2>
-              <p className="text-xs text-neutral-400">Link your physical PC to scan and manage installed software</p>
+              <p className="text-xs text-neutral-400">Link this PC or any remote Windows machine to your private account</p>
             </div>
           </div>
           <button
@@ -46,45 +54,89 @@ export const ConnectDeviceModal: React.FC<ConnectDeviceModalProps> = ({ user, on
         {/* Pairing Code Box */}
         <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-4 flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-500">Your Personal Pairing Code</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-500">Your Private Pairing Code</span>
             <div className="text-xl font-mono font-bold tracking-wider text-foreground mt-0.5">{pairingCode}</div>
           </div>
           <button
-            onClick={() => copyToClipboard(pairingCode)}
+            onClick={() => copyToClipboard(pairingCode, true)}
             className="flex items-center gap-1.5 rounded-lg border border-surface-border bg-surface px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-surface-muted transition-all active:scale-95"
           >
-            {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-            <span>{copied ? 'Copied' : 'Copy Code'}</span>
+            {copiedQuick ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+            <span>{copiedQuick ? 'Copied' : 'Copy Code'}</span>
           </button>
         </div>
 
-        {/* Connection Instructions */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
-            <Terminal className="w-4 h-4" /> Quick Connect via Windows PowerShell
-          </h3>
-
-          <p className="text-xs text-neutral-300 leading-relaxed">
-            Open <strong>PowerShell</strong> on the Windows machine you want to connect and run the following command to link this computer to your account:
-          </p>
-
-          <div className="relative rounded-xl border border-surface-border bg-neutral-950 p-3 font-mono text-xs text-emerald-400 overflow-x-auto">
-            <code>{installCmd}</code>
-            <button
-              onClick={() => copyToClipboard(installCmd)}
-              className="absolute right-2 top-2 p-1.5 rounded-lg bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
-              title="Copy Command"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </div>
+        {/* Method Toggle Tabs */}
+        <div className="flex rounded-xl bg-surface-muted p-1 border border-surface-border text-xs">
+          <button
+            onClick={() => setActiveTab('quick')}
+            className={`flex-1 py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'quick'
+                ? 'bg-surface text-brand-400 shadow-sm'
+                : 'text-neutral-400 hover:text-foreground'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            One-Click Scan (Zero Install)
+          </button>
+          <button
+            onClick={() => setActiveTab('continuous')}
+            className={`flex-1 py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'continuous'
+                ? 'bg-surface text-brand-400 shadow-sm'
+                : 'text-neutral-400 hover:text-foreground'
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Background Agent (Continuous)
+          </button>
         </div>
+
+        {/* Tab 1: One-Click PowerShell */}
+        {activeTab === 'quick' && (
+          <div className="space-y-3">
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              Open <strong>PowerShell</strong> on any Windows machine (no Git or Node required) and paste this single command. It will link the PC and scan all installed software into your dashboard:
+            </p>
+
+            <div className="relative rounded-xl border border-surface-border bg-neutral-950 p-3.5 font-mono text-xs text-emerald-400 break-all pr-12">
+              <code>{quickCmd}</code>
+              <button
+                onClick={() => copyToClipboard(quickCmd, true)}
+                className="absolute right-2 top-2 p-1.5 rounded-lg bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+                title="Copy Command"
+              >
+                {copiedQuick ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Continuous Background Agent */}
+        {activeTab === 'continuous' && (
+          <div className="space-y-3">
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              For continuous real-time telemetry, polling, and remote one-click updates, run the agent in the project directory:
+            </p>
+
+            <div className="relative rounded-xl border border-surface-border bg-neutral-950 p-3.5 font-mono text-xs text-emerald-400 break-all pr-12">
+              <code>{continuousCmd}</code>
+              <button
+                onClick={() => copyToClipboard(continuousCmd, false)}
+                className="absolute right-2 top-2 p-1.5 rounded-lg bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+                title="Copy Command"
+              >
+                {copiedContinuous ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Safety Note */}
         <div className="rounded-lg bg-surface-muted p-3 text-[11px] text-neutral-400 flex items-start gap-2.5">
           <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
           <span>
-            <strong>Isolated Account:</strong> Only applications from the machine running your unique pairing code will appear in your private dashboard. Other users cannot see your computer or apps.
+            <strong>Isolated Account:</strong> Only applications from the machine running your unique pairing code will appear in your private dashboard. Other users cannot view or manage your computers.
           </span>
         </div>
 

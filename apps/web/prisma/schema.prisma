@@ -1,0 +1,170 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String
+  passwordHash String        @default("")
+  role         String        @default("user")
+  pairingCode  String?       @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @default(now()) @updatedAt
+  devices      Device[]
+  auditEvents  AuditEvent[]
+}
+
+model Device {
+  id           String        @id @default(uuid())
+  ownerId      String?
+  name         String
+  osVersion    String
+  agentVersion String
+  lastSeen     DateTime      @default(now())
+  status       String        @default("offline") // 'online' | 'offline' | 'unpaired'
+  token        String        @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  owner        User?         @relation(fields: [ownerId], references: [id])
+  applications Application[]
+  scanJobs     ScanJob[]
+  updateJobs   UpdateJob[]
+  auditEvents  AuditEvent[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([lastSeen])
+}
+
+model Application {
+  id               String      @id @default(uuid())
+  deviceId         String
+  displayName      String
+  publisher        String?
+  installedVersion String
+  availableVersion String?
+  packageId        String?
+  source           String      @default("winget") // winget, registry, manual
+  updateStatus     String      @default("unknown") // up_to_date, update_available, unknown, unsupported
+  releaseDate      String?
+  changelogUrl     String?
+  homepageUrl      String?
+  lastScannedAt    DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  device           Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  updateJobs       UpdateJob[]
+
+  @@unique([deviceId, displayName, packageId])
+  @@index([deviceId])
+  @@index([updateStatus])
+  @@index([packageId])
+}
+
+model ReleaseMetadata {
+  id           String   @id @default(uuid())
+  packageId    String
+  version      String
+  channel      String?
+  releaseDate  String?
+  changelogUrl String?
+  releaseNotes String?
+  source       String   @default("winget")
+  fetchedTime  DateTime @default(now())
+
+  @@unique([packageId, version])
+  @@index([packageId])
+}
+
+model ScanJob {
+  id            String    @id @default(uuid())
+  deviceId      String
+  state         String    @default("queued") // queued, running, completed, failed
+  totalApps     Int       @default(0)
+  updatesFound  Int       @default(0)
+  startMessage  String?
+  errorMessage  String?
+  inventorySnapshot String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  device        Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([state])
+}
+
+model UpdateJob {
+  id                 String       @id @default(uuid())
+  deviceId           String
+  applicationId      String
+  applicationName    String
+  packageId          String
+  fromVersion        String
+  targetVersion      String
+  state              String       @default("pending_confirmation") // pending_confirmation, queued, in_progress, succeeded, failed, cancelled
+  progressPercent    Int?         @default(0)
+  progressPhase      String?      @default("queued") // queued, downloading, installing, verifying, completed, failed
+  progressMessage    String?
+  initiator          String       @default("user")
+  exitCode           Int?
+  outputLogs         String?
+  verificationResult String?
+  verifiedVersion    String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime     @default(now())
+
+  device             Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  application        Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([applicationId])
+  @@index([state])
+}
+
+model SecurityFinding {
+  id               String   @id @default(uuid())
+  packageId        String
+  packageName      String
+  installedVersion String
+  advisoryId       String   // CVE or GHSA
+  title            String
+  severity         String   // critical, high, medium, low
+  affectedRange    String
+  fixedVersion     String?
+  source           String   @default("OSV / NVD")
+  summary          String
+  lastVerifiedTime DateTime @default(now())
+
+  @@index([packageId])
+  @@index([severity])
+}
+
+model AuditEvent {
+  id        String   @id @default(uuid())
+  userId    String?
+  deviceId  String?
+  actor     String   @default("system")
+  eventType String
+  target    String
+  metadata  String?  // JSON string
+  timestamp DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  device    Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([deviceId])
+  @@index([eventType])
+  @@index([timestamp])
+}
