@@ -835,6 +835,20 @@ export class JobService {
 
   static async pollPendingJobs(deviceId: string) {
     return prisma.$transaction(async tx => {
+      // Auto-expire any stale running scan jobs (older than 60 seconds) so they never block updates
+      const scanCutoff = new Date(Date.now() - 60_000);
+      await tx.scanJob.updateMany({
+        where: { deviceId, state: 'running', startedAt: { lt: scanCutoff } },
+        data: { state: 'completed', completedAt: new Date() },
+      });
+
+      // Auto-expire stale in_progress update jobs (older than 10 minutes)
+      const updateCutoff = new Date(Date.now() - 10 * 60_000);
+      await tx.updateJob.updateMany({
+        where: { deviceId, state: 'in_progress', startedAt: { lt: updateCutoff } },
+        data: { state: 'failed', completedAt: new Date(), progressMessage: 'Update timed out' },
+      });
+
       const activeUpdate = await tx.updateJob.findFirst({ where: { deviceId, state: 'in_progress' } });
       const activeScan = await tx.scanJob.findFirst({ where: { deviceId, state: 'running' } });
       if (activeUpdate || activeScan) return null;
