@@ -4,6 +4,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { router as apiRouter } from './routes/api';
 import { JobService } from './services/jobService';
+import { AuthService } from './services/authService';
 import { renderSwaggerHtml } from './openapi';
 
 dotenv.config({ path: '.env.local' });
@@ -38,6 +39,7 @@ app.get('/health', (req, res) => {
 
 async function startServer() {
   try {
+    await AuthService.ensureDefaultAdmin();
     await JobService.expireStaleJobs();
     await JobService.pruneDiagnostics();
     setInterval(() => void JobService.expireStaleJobs().catch(console.error), 60_000).unref();

@@ -19,8 +19,16 @@ export class AuditService {
     });
   }
 
-  static async getHistory(limit = 100) {
+  static async getHistory(limit = 100, userId?: string) {
+    const where: any = {};
+    if (userId && userId !== 'admin') {
+      where.OR = [
+        { userId },
+        { device: { ownerId: userId } },
+      ];
+    }
     return prisma.auditEvent.findMany({
+      where,
       take: limit,
       orderBy: { timestamp: 'desc' },
       include: {

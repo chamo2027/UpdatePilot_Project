@@ -137,6 +137,7 @@ export class InventoryService {
   }
 
   static async getApplications(params: {
+    userId?: string;
     deviceId?: string;
     search?: string;
     status?: string;
@@ -151,6 +152,9 @@ export class InventoryService {
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
+    if (params.userId && params.userId !== 'admin') {
+      where.device = { ...(where.device || {}), ownerId: params.userId };
+    }
     if (params.deviceId) {
       where.deviceId = params.deviceId;
     }
@@ -223,14 +227,17 @@ export class InventoryService {
     };
   }
 
-  static async getAvailableUpdates(deviceId?: string) {
+  static async getAvailableUpdates(userId?: string, deviceId?: string) {
     const where: any = {
       updateStatus: 'update_available',
     };
+    if (userId && userId !== 'admin') {
+      where.device = { ...(where.device || {}), ownerId: userId };
+    }
     if (deviceId) {
       where.deviceId = deviceId;
     } else {
-      where.device = { status: 'online' };
+      where.device = { ...(where.device || {}), status: 'online' };
     }
 
     const apps = await prisma.application.findMany({
@@ -244,7 +251,17 @@ export class InventoryService {
     return apps;
   }
 
-  static async getDashboardMetrics(): Promise<DashboardMetrics> {
+  static async getDashboardMetrics(userId?: string): Promise<DashboardMetrics> {
+    const appFilter: any = {};
+    const devFilter: any = {};
+    const scanFilter: any = { state: 'completed' };
+
+    if (userId && userId !== 'admin') {
+      appFilter.device = { ownerId: userId };
+      devFilter.ownerId = userId;
+      scanFilter.device = { ownerId: userId };
+    }
+
     const [
       totalApplications,
       updatesAvailable,
@@ -253,20 +270,21 @@ export class InventoryService {
       activeDevices,
       lastScanJob,
     ] = await Promise.all([
-      prisma.application.count(),
-      prisma.application.count({ where: { updateStatus: 'update_available' } }),
-      prisma.application.count({ where: { updateStatus: 'up_to_date' } }),
+      prisma.application.count({ where: appFilter }),
+      prisma.application.count({ where: { ...appFilter, updateStatus: 'update_available' } }),
+      prisma.application.count({ where: { ...appFilter, updateStatus: 'up_to_date' } }),
       prisma.application.count({
-        where: { updateStatus: { in: ['unknown', 'unsupported'] } },
+        where: { ...appFilter, updateStatus: { in: ['unknown', 'unsupported'] } },
       }),
-      prisma.device.count({ where: { status: 'online' } }),
+      prisma.device.count({ where: { ...devFilter, status: 'online' } }),
       prisma.scanJob.findFirst({
-        where: { state: 'completed' },
+        where: scanFilter,
         orderBy: { completedAt: 'desc' },
       }),
     ]);
 
     const primaryDevice = await prisma.device.findFirst({
+      where: devFilter,
       orderBy: { lastSeen: 'desc' },
     });
 

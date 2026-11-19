@@ -4,7 +4,8 @@ import { DeviceService } from '../services/deviceService';
 import { JobService } from '../services/jobService';
 import { SecurityService } from '../services/securityService';
 import { AuditService } from '../services/auditService';
-import { protectDashboard } from '../access';
+import { AuthService } from '../services/authService';
+import { protectDashboard, setSessionCookie, clearSessionCookie } from '../access';
 import { prisma } from '../prisma';
 import { setupSwagger } from '../openapi';
 import {
@@ -18,6 +19,100 @@ import {
 export const router = Router();
 setupSwagger(router);
 protectDashboard(router);
+
+// ==========================================
+// 0. User Authentication & Profile
+// ==========================================
+router.post('/auth/register', async (req: Request, res: Response) => {
+  try {
+    const { email, password, name } = req.body || {};
+    if (!email || !password || !name) {
+      return res.status(400).json({ success: false, error: 'Email, password, and name are required.' });
+    }
+    const user = await AuthService.register({ email, password, name });
+    const origin = req.get('origin')?.replace(/\/$/, '');
+    setSessionCookie(res, user.id, origin);
+    return res.status(201).json({ success: true, data: user });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Email and password are required.' });
+    }
+    const user = await AuthService.login({ email, password });
+    const origin = req.get('origin')?.replace(/\/$/, '');
+    setSessionCookie(res, user.id, origin);
+    return res.json({ success: true, data: user });
+  } catch (error: any) {
+    return res.status(401).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/auth/me', async (req: Request, res: Response) => {
+  try {
+    const userId = res.locals.userId;
+    if (!userId) return res.status(401).json({ success: false, error: 'Not authenticated' });
+    if (userId === 'admin') {
+      const admin = await prisma.user.findFirst({ where: { role: 'admin' } });
+      return res.json({
+        success: true,
+        data: {
+          id: admin?.id || 'admin',
+          email: admin?.email || 'admin@updatepilot.local',
+          name: admin?.name || 'Administrator',
+          role: 'admin',
+          pairingCode: admin?.pairingCode || process.env.AGENT_PAIRING_CODE || 'UP-ADMIN-DEFAULT',
+        },
+      });
+    }
+    const user = await AuthService.getUserById(userId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    return res.json({ success: true, data: user });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/auth/logout', (req: Request, res: Response) => {
+  const origin = req.get('origin')?.replace(/\/$/, '');
+  clearSessionCookie(res, origin);
+  return res.json({ success: true });
+});
+
+router.get('/install-agent.ps1', (req: Request, res: Response) => {
+  const code = (req.query.code as string) || '';
+  const protocol = req.protocol;
+  const host = req.get('host');
+  const serverUrl = `${protocol}://${host}/api/v1`;
+
+  const script = `# UpdatePilot Windows Host Agent - Quick Connect Script
+$ErrorActionPreference = 'Stop'
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "   UpdatePilot - Connecting this Windows PC...            " -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
+
+$serverUrl = "${serverUrl}"
+$pairingCode = "${code}"
+
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+    Write-Host "Error: Windows Package Manager (winget) is required." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "Target Server: $serverUrl" -ForegroundColor Green
+Write-Host "Pairing Key:   $pairingCode" -ForegroundColor Yellow
+Write-Host "To link your machine, run the agent with:" -ForegroundColor Cyan
+Write-Host "  \\$env:SERVER_URL='$serverUrl'" -ForegroundColor White
+Write-Host "  \\$env:AGENT_PAIRING_CODE='$pairingCode'" -ForegroundColor White
+Write-Host "  npm run dev:agent" -ForegroundColor White
+`;
+  res.type('text/plain').send(script);
+});
 
 router.use('/agent', async (req, res, next) => {
   try {
@@ -36,7 +131,7 @@ router.use('/agent', async (req, res, next) => {
 // ==========================================
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
-    const metrics = await InventoryService.getDashboardMetrics();
+    const metrics = await InventoryService.getDashboardMetrics(res.locals.userId);
     return res.json({ success: true, data: metrics });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
@@ -48,7 +143,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 // ==========================================
 router.get('/devices', async (req: Request, res: Response) => {
   try {
-    const devices = await DeviceService.getDevices();
+    const devices = await DeviceService.getDevices(res.locals.userId);
     return res.json({ success: true, data: devices });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
@@ -108,6 +203,7 @@ router.get('/applications', async (req: Request, res: Response) => {
   try {
     const { deviceId, search, status, source, sortBy, sortOrder, page, pageSize } = req.query;
     const result = await InventoryService.getApplications({
+      userId: res.locals.userId,
       deviceId: deviceId as string,
       search: search as string,
       status: status as string,
@@ -141,7 +237,7 @@ router.get('/applications/:id', async (req: Request, res: Response) => {
 router.get('/updates', async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.query;
-    const updates = await InventoryService.getAvailableUpdates(deviceId as string);
+    const updates = await InventoryService.getAvailableUpdates(res.locals.userId, deviceId as string);
     return res.json({ success: true, data: updates });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
@@ -204,7 +300,7 @@ router.post('/jobs/:id/cancel', async (req, res, next) => {
 // ==========================================
 router.get('/history', async (req: Request, res: Response) => {
   try {
-    const history = await AuditService.getHistory();
+    const history = await AuditService.getHistory(100, res.locals.userId);
     return res.json({ success: true, data: history });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });

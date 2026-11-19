@@ -8,12 +8,16 @@ generator client {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String
-  role      String   @default("admin")
-  createdAt DateTime @default(now())
-  devices   Device[]
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String
+  passwordHash String        @default("")
+  role         String        @default("user")
+  pairingCode  String?       @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @default(now()) @updatedAt
+  devices      Device[]
+  auditEvents  AuditEvent[]
 }
 
 model Device {
@@ -34,6 +38,7 @@ model Device {
   updateJobs   UpdateJob[]
   auditEvents  AuditEvent[]
 
+  @@index([ownerId])
   @@index([status])
   @@index([lastSeen])
 }
@@ -147,6 +152,7 @@ model SecurityFinding {
 
 model AuditEvent {
   id        String   @id @default(uuid())
+  userId    String?
   deviceId  String?
   actor     String   @default("system")
   eventType String
@@ -154,8 +160,10 @@ model AuditEvent {
   metadata  String?  // JSON string
   timestamp DateTime @default(now())
 
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   device    Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
+  @@index([userId])
   @@index([deviceId])
   @@index([eventType])
   @@index([timestamp])

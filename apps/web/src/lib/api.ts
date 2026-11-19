@@ -65,4 +65,10 @@ export const api = {
   getSecurityFindings: () => fetchJson<any[]>(`${API_BASE}/security/findings`),
   revokeDevice: (deviceId: string) =>
     fetchJson<any>(`${API_BASE}/devices/${deviceId}/revoke`, { method: 'POST' }),
+  register: (data: { email: string; password: string; name: string }) =>
+    fetchJson<any>(`${API_BASE}/auth/register`, { method: 'POST', body: JSON.stringify(data) }),
+  login: (data: { email: string; password: string }) =>
+    fetchJson<any>(`${API_BASE}/auth/login`, { method: 'POST', body: JSON.stringify(data) }),
+  getMe: () => fetchJson<any>(`${API_BASE}/auth/me`),
+  logout: () => fetchJson<any>(`${API_BASE}/auth/logout`, { method: 'POST' }),
 };
