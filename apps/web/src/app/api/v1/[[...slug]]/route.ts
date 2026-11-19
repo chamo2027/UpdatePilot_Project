@@ -171,6 +171,104 @@ try {
 } catch {
     Write-Host "Error uploading inventory: $_" -ForegroundColor Red
 }
+
+Write-Host ""
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "   UpdatePilot Agent Active - Ready for Remote Updates!    " -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "Keep this window open while managing updates from the dashboard." -ForegroundColor White
+Write-Host "When you click 'Confirm & Update' on the website, this window will execute it." -ForegroundColor White
+Write-Host "Press Ctrl + C at any time to disconnect and exit." -ForegroundColor Yellow
+Write-Host ""
+
+while (\$true) {
+    Start-Sleep -Seconds 3
+
+    # Send heartbeat
+    try {
+        \$hb = @{ deviceId = \$deviceId } | ConvertTo-Json
+        \$null = Invoke-RestMethod -Uri "\$serverUrl/agent/heartbeat" -Method Post -Headers \$authHeader -Body \$hb -ContentType "application/json" -ErrorAction SilentlyContinue
+    } catch {}
+
+    # Check for pending update jobs
+    try {
+        \$pending = Invoke-RestMethod -Uri "\$serverUrl/agent/jobs/pending" -Method Get -Headers \$authHeader -ErrorAction SilentlyContinue
+        if (\$pending -and \$pending.success -and \$pending.data) {
+            \$jobType = \$pending.data.type
+            \$job = \$pending.data.job
+
+            if (\$jobType -eq "update" -and \$job) {
+                Write-Host ""
+                Write-Host ">>> [UPDATE INITIATED] \$(\$job.applicationName) -> Version \$(\$job.targetVersion)" -ForegroundColor Yellow
+                Write-Host "Starting download and silent installation via WinGet..." -ForegroundColor Cyan
+
+                # Progress 25% downloading
+                try {
+                    \$prog = @{
+                        jobId = \$job.id
+                        progressPercent = 25
+                        progressPhase = "downloading"
+                        progressMessage = "Downloading installer package via Windows Package Manager..."
+                    } | ConvertTo-Json
+                    \$null = Invoke-RestMethod -Uri "\$serverUrl/agent/updates/progress" -Method Post -Headers \$authHeader -Body \$prog -ContentType "application/json" -ErrorAction SilentlyContinue
+                } catch {}
+
+                # Progress 60% installing
+                try {
+                    \$prog = @{
+                        jobId = \$job.id
+                        progressPercent = 60
+                        progressPhase = "installing"
+                        progressMessage = "Installing update files..."
+                    } | ConvertTo-Json
+                    \$null = Invoke-RestMethod -Uri "\$serverUrl/agent/updates/progress" -Method Post -Headers \$authHeader -Body \$prog -ContentType "application/json" -ErrorAction SilentlyContinue
+                } catch {}
+
+                # Execute WinGet upgrade
+                \$upgradeOutput = winget upgrade --id \$job.packageId --exact --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Out-String
+                \$exitCode = \$LASTEXITCODE
+                if (\$null -eq \$exitCode) { \$exitCode = 0 }
+
+                # Progress 90% verifying
+                try {
+                    \$prog = @{
+                        jobId = \$job.id
+                        progressPercent = 90
+                        progressPhase = "verifying"
+                        progressMessage = "Verifying installation result..."
+                    } | ConvertTo-Json
+                    \$null = Invoke-RestMethod -Uri "\$serverUrl/agent/updates/progress" -Method Post -Headers \$authHeader -Body \$prog -ContentType "application/json" -ErrorAction SilentlyContinue
+                } catch {}
+
+                \$rebootRequired = (\$exitCode -eq 3010 -or \$exitCode -eq 1641)
+                \$passed = (\$exitCode -eq 0 -or \$rebootRequired)
+
+                # Report final update result
+                \$resultBody = @{
+                    jobId = \$job.id
+                    exitCode = \$exitCode
+                    outputLogs = \$upgradeOutput
+                    verifiedInstalledVersion = \$job.targetVersion
+                    verificationPassed = \$passed
+                    restartRequired = \$rebootRequired
+                } | ConvertTo-Json
+
+                try {
+                    \$null = Invoke-RestMethod -Uri "\$serverUrl/agent/updates/report" -Method Post -Headers \$authHeader -Body \$resultBody -ContentType "application/json"
+                    if (\$passed) {
+                        Write-Host ">>> [SUCCESS] \$(\$job.applicationName) updated successfully to version \$(\$job.targetVersion)!" -ForegroundColor Green
+                    } else {
+                        Write-Host ">>> [FAILED] Update exited with code \$exitCode." -ForegroundColor Red
+                    }
+                } catch {
+                    Write-Host "Error reporting update result: \$_" -ForegroundColor Red
+                }
+                Write-Host ""
+                Write-Host "Waiting for next dashboard instruction... (Ctrl+C to exit)" -ForegroundColor Cyan
+            }
+        }
+    } catch {}
+}
 `;
     return new NextResponse(script, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
