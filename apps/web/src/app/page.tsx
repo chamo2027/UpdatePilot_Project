@@ -169,7 +169,7 @@ export default function Home() {
                 id="user-name"
                 className="w-full rounded-xl border border-surface-border bg-surface-muted px-3.5 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/50"
                 type="text"
-                placeholder="Chamodya"
+                placeholder="John Doe"
                 value={name}
                 required
                 onChange={event => setName(event.target.value)}
