@@ -99,6 +99,8 @@ try {
 
 Write-Host ""
 Write-Host "[2/3] Scanning installed applications via Windows Package Manager..." -ForegroundColor Cyan
+Write-Host "      Querying Microsoft package catalog & scanning system programs..." -ForegroundColor Gray
+Write-Host "      (Usually takes 20-40 seconds for 100+ installed applications)..." -ForegroundColor Gray
 $authHeader = @{ "Authorization" = "Bearer $token" }
 try {
     $scanJob = Invoke-RestMethod -Uri "$serverUrl/agent/scans" -Method Post -Headers $authHeader -ContentType "application/json"
@@ -108,7 +110,7 @@ try {
     exit 1
 }
 
-$raw = winget list --accept-source-agreements 2>&1 | Out-String
+$raw = winget list --accept-source-agreements --disable-interactivity 2>&1 | Out-String
 $lines = $raw -split "\\r?\\n"
 
 $apps = @()
